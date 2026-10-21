@@ -1,0 +1,10 @@
+{
+  "minimumAcceptableScore": 70,
+  "excellentScore": 90,
+  "ruleOfThirdsTolerance": 0.08,
+  "minimumHeadroomRatio": 0.08,
+  "minimumSubjectSizeRatio": 0.18,
+  "maximumSubjectSizeRatio": 0.72,
+  "maximumHorizonAngleDegrees": 3,
+  "minimumConfidence": 0.6
+}

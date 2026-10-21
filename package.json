@@ -1,0 +1,33 @@
+{
+  "name": "framesense-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Laptop-first browser application for pre-capture photo composition guidance.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "benchmark": "node benchmarks/pipeline.benchmark.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace @framesense/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "eslint": "^9.34.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0"
+  },
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0"
+  }
+}

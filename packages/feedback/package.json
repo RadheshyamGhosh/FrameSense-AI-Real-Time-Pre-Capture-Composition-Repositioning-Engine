@@ -1,0 +1,29 @@
+{
+  "name": "@framesense/feedback",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multimodal voice, haptic feedback dispatcher and performance telemetry diagnostics for FrameSense AI.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "lint": "eslint .",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@framesense/config": "^0.1.0",
+    "@framesense/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0"
+  }
+}

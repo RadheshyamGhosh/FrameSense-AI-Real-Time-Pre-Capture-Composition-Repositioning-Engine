@@ -1,0 +1,25 @@
+{
+  "name": "@framesense/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed configuration loading and validation for FrameSense AI.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "lint": "eslint .",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0"
+  }
+}

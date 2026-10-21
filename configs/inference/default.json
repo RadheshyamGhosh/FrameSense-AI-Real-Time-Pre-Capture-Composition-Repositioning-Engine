@@ -1,0 +1,8 @@
+{
+  "targetInferenceFps": 10,
+  "minimumInferenceIntervalMs": 100,
+  "modelConfidenceThreshold": 0.55,
+  "maximumProcessingWidth": 640,
+  "maximumProcessingHeight": 360,
+  "inferenceEnabled": true
+}

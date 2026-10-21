@@ -1,0 +1,7 @@
+{
+  "targetCameraFps": 30,
+  "targetProcessingFps": 15,
+  "targetInferenceLatencyMs": 75,
+  "targetEndToEndLatencyMs": 150,
+  "diagnosticsSamplingIntervalMs": 1000
+}

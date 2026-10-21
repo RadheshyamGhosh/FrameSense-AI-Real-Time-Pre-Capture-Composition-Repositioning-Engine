@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Large local artifacts
+models/**/*.onnx
+models/**/*.tflite
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.pt
+models/**/*.pth
+test-data/**/*.jpg
+test-data/**/*.jpeg
+test-data/**/*.png
+test-data/**/*.webp
+test-data/**/*.mp4
+test-data/**/*.mov
+test-data/**/*.webm
+!models/.gitkeep
+!test-data/.gitkeep
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,7 @@
+{
+  "minimumGuidanceConfidence": 0.65,
+  "guidanceCooldownMs": 1200,
+  "recommendationPersistenceMs": 500,
+  "stabilityDurationMs": 750,
+  "maximumRepeatedAnnouncements": 2
+}

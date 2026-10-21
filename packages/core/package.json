@@ -1,0 +1,21 @@
+{
+  "name": "@framesense/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain contracts for the FrameSense AI runtime pipeline.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit"
+  }
+}
