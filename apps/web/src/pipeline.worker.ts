@@ -3,12 +3,17 @@ import type {
   WorkerOutboundMessage,
 } from "@framesense/camera";
 import {
-  MockPerceptionAdapter,
   PipelineProcessor,
+  RealPerceptionAdapter,
 } from "@framesense/perception";
 
 let processor: PipelineProcessor | null = null;
-const perceptionAdapter = new MockPerceptionAdapter("PERFECT_PORTRAIT");
+const realAdapter = new RealPerceptionAdapter();
+
+// Initialize the real adapter (tries FaceDetector API)
+realAdapter.initialize().catch(() => {
+  // Silently fall back to pixel-only analysis
+});
 
 self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) => {
   const data = ev.data;
@@ -17,7 +22,7 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
   switch (data.type) {
     case "INIT": {
       processor = new PipelineProcessor({
-        adapter: perceptionAdapter,
+        adapter: realAdapter,
         config: data.config,
       });
 
@@ -37,6 +42,9 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
       }
 
       try {
+        // Attach the bitmap to the frame object so RealPerceptionAdapter can
+        // access pixel data for on-device analysis. This is safe because the
+        // bitmap has been transferred (zero-copy) to this worker's scope.
         const frame = {
           frameId: data.frameId,
           timestamp: data.timestamp,
@@ -45,11 +53,13 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
           orientation: "LANDSCAPE" as const,
           source: { type: "WEBCAM" as const },
           payload: { kind: "OPAQUE_REF" as const, refId: data.frameId },
+          // Non-standard attachment — picked up by RealPerceptionAdapter
+          __bitmap: data.bitmap,
         };
 
         const result = await processor.processFrame(frame);
 
-        // Clean up the transferred ImageBitmap to prevent GPU/RAM memory leaks
+        // Release the GPU bitmap memory after analysis
         if (data.bitmap && typeof data.bitmap.close === "function") {
           data.bitmap.close();
         }
@@ -66,6 +76,9 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
 
         self.postMessage(response);
       } catch (err) {
+        if (data.bitmap && typeof data.bitmap.close === "function") {
+          data.bitmap.close();
+        }
         const errorMsg: WorkerOutboundMessage = {
           type: "ERROR",
           error: String(err),

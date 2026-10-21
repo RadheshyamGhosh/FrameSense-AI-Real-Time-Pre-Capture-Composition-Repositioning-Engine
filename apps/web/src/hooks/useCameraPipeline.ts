@@ -21,6 +21,7 @@ import {
 import {
   MockPerceptionAdapter,
   PipelineProcessor,
+  RealPerceptionAdapter,
   type MockPerceptionPreset,
 } from "@framesense/perception";
 import type { FrameSenseConfig } from "@framesense/config";
@@ -79,7 +80,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
   const [guidance, setGuidance] = useState<GuidanceResult | null>(null);
   const [captureDecision, setCaptureDecision] = useState<CaptureDecision | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticSample | null>(null);
-  const [isAutoCapture, setIsAutoCapture] = useState(true);
+  const [isAutoCapture, setIsAutoCapture] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<CapturedPhoto | null>(null);
   const [isShutterFlashing, setIsShutterFlashing] = useState(false);
 
@@ -110,11 +111,11 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     const diag = new DiagnosticsCollector();
     diagnosticsRef.current = diag;
 
-    // Direct fallback processor for local execution & synthetic mode
-    const fallbackAdapter = new MockPerceptionAdapter("PERFECT_PORTRAIT");
-    fallbackAdapterRef.current = fallbackAdapter;
+    // Fallback processor initialized with RealPerceptionAdapter (not Mock)
+    const realAdapter = new RealPerceptionAdapter();
+    realAdapter.initialize().catch(() => {});
     const processor = new PipelineProcessor({
-      adapter: fallbackAdapter,
+      adapter: realAdapter,
       config: DEFAULT_CONFIG,
     });
     fallbackProcessorRef.current = processor;
@@ -144,10 +145,14 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
           dispatcher.dispatch(res.guidance, res.capture);
         });
 
+        bridge.onError((err) => {
+          console.warn("Pipeline worker issue, continuing on-device:", err);
+        });
+
         workerBridgeRef.current = bridge;
       }
-    } catch {
-      // Fallback runs directly in-thread
+    } catch (e) {
+      console.warn("Worker not available, using in-thread pipeline:", e);
     }
 
     // Refresh available devices
@@ -182,7 +187,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
   // Capture frame action
   const takePhoto = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !composition) return;
+    if (!video) return;
 
     setIsShutterFlashing(true);
     setTimeout(() => setIsShutterFlashing(false), 200);
@@ -192,15 +197,35 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
     if (ctx) {
+      // Invert mirror for saved photo (render actual physical viewpoint)
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+
+      const score = composition?.overallScore ?? 85;
+      const comp = composition ?? {
+        frameId: `manual_${Date.now()}`,
+        timestamp: Date.now(),
+        overallScore: score,
+        metrics: [
+          { type: "SUBJECT_POSITION", score, confidence: 0.9, explanation: "Manual capture" },
+          { type: "RULE_OF_THIRDS", score, confidence: 0.9, explanation: "Manual capture" },
+          { type: "HEADROOM", score, confidence: 0.9, explanation: "Manual capture" },
+          { type: "SUBJECT_SIZE", score, confidence: 0.9, explanation: "Manual capture" },
+          { type: "HORIZON_ALIGNMENT", score: 100, confidence: 0.9, explanation: "Manual capture" },
+          { type: "SYMMETRY", score: 90, confidence: 0.9, explanation: "Manual capture" },
+        ],
+        issues: [],
+        profile: "PORTRAIT" as const,
+      };
 
       setCapturedPhoto({
         dataUrl,
         timestamp: Date.now(),
-        score: composition.overallScore,
-        composition,
-        profile: composition.profile,
+        score,
+        composition: comp,
+        profile: comp.profile,
       });
     }
   }, [composition, videoRef]);
@@ -212,14 +237,17 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     }
   }, [isAutoCapture, captureDecision?.ready, capturedPhoto, takePhoto]);
 
-  // Camera start method
-  const startCamera = async (deviceId?: string) => {
-    if (useSynthetic) {
+  // Camera start method – takes an explicit synthetic flag to avoid stale closure
+  const startCamera = async (deviceId?: string, forceUseSynthetic?: boolean) => {
+    const synthetic = forceUseSynthetic ?? useSynthetic;
+
+    if (synthetic) {
       // Start synthetic stream
+      syntheticSourceRef.current?.stop();
       setCameraStatus("STREAMING");
-      const synthetic = new SyntheticCameraSource({ fps: 15 });
-      syntheticSourceRef.current = synthetic;
-      synthetic.start(async (frame) => {
+      const synth = new SyntheticCameraSource({ fps: 15 });
+      syntheticSourceRef.current = synth;
+      synth.start(async (frame) => {
         diagnosticsRef.current?.recordCameraFrame();
         if (fallbackProcessorRef.current) {
           const res = await fallbackProcessorRef.current.processFrame(frame);
@@ -233,32 +261,61 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     }
 
     if (!cameraManagerRef.current) return;
+    setCameraStatus("INITIALIZING");
     try {
       const stream = await cameraManagerRef.current.start({
         deviceId,
-        width: 1920,
-        height: 1080,
+        width: 1280,
+        height: 720,
         targetFps: 30,
       });
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+      const video = videoRef.current;
+      if (video) {
+        // Attach stream and wait for the video to be ready before playing
+        video.srcObject = stream;
+        await new Promise<void>((resolve) => {
+          const onReady = () => {
+            video.removeEventListener("loadedmetadata", onReady);
+            resolve();
+          };
+          // If metadata already loaded (e.g. hot-reload), resolve immediately
+          if (video.readyState >= 1) {
+            resolve();
+          } else {
+            video.addEventListener("loadedmetadata", onReady);
+          }
+        });
+        try {
+          await video.play();
+        } catch {
+          // Autoplay blocked – video will play once user interacts
+        }
       }
 
       setCameraStatus("STREAMING");
       setActiveDeviceId(cameraManagerRef.current.getActiveDeviceId());
 
-      // Start frame sampler
-      if (samplerRef.current && videoRef.current) {
-        samplerRef.current.startSampling(videoRef.current, async (extracted) => {
+      // Start frame sampler only after video is playing
+      const currentVideo = videoRef.current;
+      if (samplerRef.current && currentVideo) {
+        samplerRef.current.startSampling(currentVideo, async (extracted) => {
           diagnosticsRef.current?.recordCameraFrame();
 
-          // Dispatch to Web Worker or direct fallback processor
+          // Dispatch to Web Worker with automatic fallback to local pipeline
+          let handled = false;
           if (workerBridgeRef.current) {
-            workerBridgeRef.current.dispatchFrame(extracted);
-          } else if (fallbackProcessorRef.current) {
+            handled = workerBridgeRef.current.dispatchFrame(extracted);
+          }
+
+          if (!handled && fallbackProcessorRef.current) {
             const res = await fallbackProcessorRef.current.processFrame(extracted.cameraFrame);
+            diagnosticsRef.current?.recordProcessingCycle(
+              res.timestamp,
+              res.processingTimeMs,
+              2,
+              Math.round(performance.now() - res.timestamp),
+            );
             setComposition(res.composition);
             setGuidance(res.guidance);
             setCaptureDecision(res.capture);
@@ -274,17 +331,21 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
 
   const stopCamera = () => {
     samplerRef.current?.stopSampling();
-    cameraManagerRef.current?.stop();
     syntheticSourceRef.current?.stop();
+    syntheticSourceRef.current = null;
+    cameraManagerRef.current?.stop();
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setComposition(null);
+    setGuidance(null);
+    setCaptureDecision(null);
     setCameraStatus("IDLE");
   };
 
   const switchCamera = async (deviceId: string) => {
     stopCamera();
-    await startCamera(deviceId);
+    await startCamera(deviceId, false);
   };
 
   const updateFeedbackSettings = (settings: Partial<FeedbackSettings>) => {

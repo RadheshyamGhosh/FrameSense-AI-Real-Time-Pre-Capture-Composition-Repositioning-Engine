@@ -10,17 +10,33 @@ export class BrowserSpeechProvider implements SpeechProvider {
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (options?.rate !== undefined) utterance.rate = options.rate;
-    if (options?.pitch !== undefined) utterance.pitch = options.pitch;
-    if (options?.volume !== undefined) utterance.volume = options.volume;
+    try {
+      // Resume audio context if paused (common Chrome issue)
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      // Cancel previous utterance to avoid queue congestion
+      window.speechSynthesis.cancel();
 
-    window.speechSynthesis.speak(utterance);
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      if (options?.rate !== undefined) utterance.rate = options.rate;
+      if (options?.pitch !== undefined) utterance.pitch = options.pitch;
+      if (options?.volume !== undefined) utterance.volume = options.volume;
+
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // Speech synthesis error fallback
+    }
   }
 
   public cancel(): void {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Fallback
+      }
     }
   }
 
@@ -55,10 +71,10 @@ export class VoiceAnnouncer {
   constructor(options?: VoiceAnnouncerOptions) {
     this.provider = options?.provider ?? new BrowserSpeechProvider();
     this.enabled = options?.enabled ?? true;
-    this.rate = options?.rate ?? 1.1; // slightly faster for agile camera guidance
+    this.rate = options?.rate ?? 1.05;
     this.pitch = options?.pitch ?? 1.0;
     this.volume = options?.volume ?? 1.0;
-    this.defaultMaxRepeats = options?.defaultMaxRepeats ?? 2;
+    this.defaultMaxRepeats = options?.defaultMaxRepeats ?? 4;
   }
 
   public setEnabled(enabled: boolean): void {
@@ -74,7 +90,6 @@ export class VoiceAnnouncer {
 
   /**
    * Evaluates text and priority to decide whether to speak the utterance.
-   * Returns true if spoken, false if suppressed (e.g. muted, repetition cap, or busy).
    */
   public announce(
     text: string,
@@ -86,9 +101,9 @@ export class VoiceAnnouncer {
     }
 
     const allowedRepeats = maxRepeats ?? this.defaultMaxRepeats;
+    const isSameText = this.lastSpokenText === text;
 
-    // Check repeated announcement limit
-    if (this.lastSpokenText === text) {
+    if (isSameText) {
       if (this.repeatCount >= allowedRepeats) {
         return false;
       }
@@ -100,13 +115,11 @@ export class VoiceAnnouncer {
 
     const isSpeaking = this.provider.isSpeaking();
 
-    // Urgent or High priority interrupts ongoing speech immediately
+    // Urgent or High priority cancels ongoing speech immediately
     if (priority === "URGENT" || priority === "HIGH") {
-      if (isSpeaking) {
-        this.provider.cancel();
-      }
+      this.provider.cancel();
     } else if (isSpeaking) {
-      // Don't interrupt for low/medium cues
+      // Don't interrupt for lower priority cues
       return false;
     }
 

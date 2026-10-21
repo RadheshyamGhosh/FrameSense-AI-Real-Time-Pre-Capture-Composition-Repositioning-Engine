@@ -70,7 +70,7 @@ export function App() {
                 className="btn-primary"
                 onClick={() => {
                   setUseSynthetic(false);
-                  startCamera();
+                  startCamera(undefined, false);
                 }}
               >
                 📷 Start Live Camera
@@ -81,7 +81,7 @@ export function App() {
                 className="btn-secondary"
                 onClick={() => {
                   setUseSynthetic(true);
-                  startCamera();
+                  startCamera(undefined, true);
                 }}
               >
                 🧪 Try Simulation Mode
@@ -94,7 +94,13 @@ export function App() {
       {/* Live Viewfinder Screen */}
       {cameraStatus !== "IDLE" && (
         <div className="viewfinder-stage">
-          {/* Shutter Flash Animation */}
+          {/* Camera initializing spinner */}
+          {cameraStatus === "INITIALIZING" && (
+            <div className="camera-initializing-overlay">
+              <div className="camera-spinner" />
+              <p>Starting camera…</p>
+            </div>
+          )}          {/* Shutter Flash Animation */}
           {isShutterFlashing && <div className="shutter-flash" />}
 
           {/* Top HUD: Score & Real-time Guidance */}

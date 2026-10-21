@@ -39,7 +39,7 @@ export function PhotoReviewModal({ photo, onClose }: PhotoReviewModalProps) {
             <section className="metric-breakdown">
               <h3>Composition Metrics</h3>
               <ul className="metrics-list">
-                {photo.composition.metrics.map((m) => (
+                {(photo.composition?.metrics ?? []).map((m) => (
                   <li key={m.type} className="metric-item">
                     <span className="metric-name">{m.type.replace(/_/g, " ")}</span>
                     <span className={`metric-score ${m.score >= 90 ? "high" : m.score >= 70 ? "mid" : "low"}`}>
@@ -50,7 +50,7 @@ export function PhotoReviewModal({ photo, onClose }: PhotoReviewModalProps) {
               </ul>
             </section>
 
-            {photo.composition.issues.length > 0 && (
+            {(photo.composition?.issues ?? []).length > 0 && (
               <section className="review-issues">
                 <h3>Notes</h3>
                 <ul>

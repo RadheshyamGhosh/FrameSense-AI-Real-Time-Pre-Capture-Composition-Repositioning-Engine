@@ -122,6 +122,15 @@ export function evaluateComposition(
   metrics.push(symmetry.metric);
   if (symmetry.issue) issues.push(symmetry.issue);
 
+  // If no salient subject detected for portrait/group framing
+  if (subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP")) {
+    issues.push({
+      metricType: "SUBJECT_POSITION",
+      severity: "HIGH",
+      message: "No person detected. Step into camera view.",
+    });
+  }
+
   // Calculate weighted overall score
   const weights = PROFILE_WEIGHTS[profile] ?? PROFILE_WEIGHTS.UNKNOWN;
   let totalScoreWeight = 0;
@@ -136,7 +145,11 @@ export function evaluateComposition(
   }
 
   const overallScore =
-    totalWeight > 0 ? Math.min(100, Math.max(0, Math.round(totalScoreWeight / totalWeight))) : 50;
+    subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP")
+      ? 20
+      : totalWeight > 0
+        ? Math.min(100, Math.max(0, Math.round(totalScoreWeight / totalWeight)))
+        : 50;
 
   // Sort issues by priority (HIGH -> MEDIUM -> LOW)
   issues.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);

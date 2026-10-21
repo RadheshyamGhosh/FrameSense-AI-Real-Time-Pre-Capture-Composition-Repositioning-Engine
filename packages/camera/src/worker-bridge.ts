@@ -22,14 +22,30 @@ export class PipelineWorkerBridge {
   private readonly worker: PipelineWorkerLike;
   private isBusy = false;
   private isReady = false;
+  private busyTimeout: ReturnType<typeof setTimeout> | null = null;
   private onResultCallback: FrameResultCallback | null = null;
   private onErrorCallback: ErrorCallback | null = null;
   private readonly messageHandler: (ev: MessageEvent) => void;
+  private readonly errorHandler: (ev: unknown) => void;
 
   constructor(worker: PipelineWorkerLike) {
     this.worker = worker;
     this.messageHandler = (ev: MessageEvent) => this.handleMessage(ev);
+    this.errorHandler = (ev: unknown) => {
+      this.isBusy = false;
+      const errMsg = ev instanceof ErrorEvent ? ev.message : "Pipeline worker runtime error";
+      console.warn("PipelineWorkerBridge: Worker error event:", errMsg);
+      if (this.onErrorCallback) {
+        this.onErrorCallback(errMsg);
+      }
+    };
+
     this.worker.addEventListener("message", this.messageHandler);
+    try {
+      this.worker.addEventListener("error", this.errorHandler as (ev: MessageEvent) => void);
+    } catch {
+      // Ignore if worker mock does not support error listener
+    }
   }
 
   /**
@@ -72,6 +88,14 @@ export class PipelineWorkerBridge {
 
     this.isBusy = true;
 
+    // Safety watchdog: auto-release busy state if worker does not respond within 450ms
+    if (this.busyTimeout) {
+      clearTimeout(this.busyTimeout);
+    }
+    this.busyTimeout = setTimeout(() => {
+      this.isBusy = false;
+    }, 450);
+
     const msg: WorkerInboundMessage = {
       type: "PROCESS_FRAME",
       frameId: extracted.cameraFrame.frameId,
@@ -94,6 +118,10 @@ export class PipelineWorkerBridge {
    * Resets the worker's internal guidance & composition states.
    */
   public reset(): void {
+    if (this.busyTimeout) {
+      clearTimeout(this.busyTimeout);
+      this.busyTimeout = null;
+    }
     this.worker.postMessage({ type: "RESET" });
     this.isBusy = false;
   }
@@ -102,7 +130,16 @@ export class PipelineWorkerBridge {
    * Shuts down the worker and cleans up listeners.
    */
   public terminate(): void {
+    if (this.busyTimeout) {
+      clearTimeout(this.busyTimeout);
+      this.busyTimeout = null;
+    }
     this.worker.removeEventListener("message", this.messageHandler);
+    try {
+      this.worker.removeEventListener("error", this.errorHandler as (ev: MessageEvent) => void);
+    } catch {
+      // Ignore
+    }
     this.worker.terminate();
     this.isBusy = false;
     this.isReady = false;
@@ -126,6 +163,10 @@ export class PipelineWorkerBridge {
     }
 
     if (data.type === "FRAME_PROCESSED") {
+      if (this.busyTimeout) {
+        clearTimeout(this.busyTimeout);
+        this.busyTimeout = null;
+      }
       this.isBusy = false;
       if (this.onResultCallback) {
         this.onResultCallback(data);
@@ -134,6 +175,10 @@ export class PipelineWorkerBridge {
     }
 
     if (data.type === "ERROR") {
+      if (this.busyTimeout) {
+        clearTimeout(this.busyTimeout);
+        this.busyTimeout = null;
+      }
       this.isBusy = false;
       if (this.onErrorCallback) {
         this.onErrorCallback(data.error);

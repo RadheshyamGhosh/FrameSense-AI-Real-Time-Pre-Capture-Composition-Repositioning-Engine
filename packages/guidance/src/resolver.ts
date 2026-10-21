@@ -64,6 +64,15 @@ export function resolveIssueToAction(issue: CompositionIssue): ResolvedAction {
 
     case "RULE_OF_THIRDS":
     case "SUBJECT_POSITION":
+      if (msg.includes("no person") || msg.includes("step into")) {
+        return {
+          action: "MOVE_CLOSER",
+          direction: "FORWARD",
+          priority: "URGENT",
+          message: "Please step into camera frame",
+          reason: issue.message,
+        };
+      }
       if (msg.includes("left")) {
         // If subject is framed too far left, camera needs to shift right
         return {
