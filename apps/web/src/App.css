@@ -36,8 +36,6 @@ body, html, #root {
   flex-direction: column;
   background-color: var(--bg-dark);
 }
-
-/* Landing Onboarding Screen */
 .landing-screen {
   width: 100%;
   height: 100%;
