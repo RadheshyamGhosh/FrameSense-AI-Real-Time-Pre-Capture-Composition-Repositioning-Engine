@@ -52,12 +52,18 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
           height: data.height,
           orientation: "LANDSCAPE" as const,
           source: { type: "WEBCAM" as const },
-          payload: { kind: "OPAQUE_REF" as const, refId: data.frameId },
+          payload: {
+            kind: "OPAQUE_REF" as const,
+            refId: data.frameId,
+            metadata: { mirrored: data.mirrored ?? false },
+          },
           // Non-standard attachment — picked up by RealPerceptionAdapter
           __bitmap: data.bitmap,
         };
 
-        const result = await processor.processFrame(frame);
+        const result = await processor.processFrame(frame, {
+          profileOverride: data.profileOverride,
+        });
 
         // Release the GPU bitmap memory after analysis
         if (data.bitmap && typeof data.bitmap.close === "function") {

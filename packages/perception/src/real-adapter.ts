@@ -5,20 +5,23 @@
  * Analyzes actual pixel data from the live camera stream.
  *
  * Features:
- * 1. Native FaceDetector API (when supported by browser/worker)
- * 2. Deterministic YCbCr & HSL skin-chroma clustering (detects all ethnicities, 100% cross-platform)
- * 3. Gradient horizon line & tilt angle estimation
+ * 1. Native FaceDetector API (up to 5 faces, when supported by browser/worker)
+ * 2. Deterministic YCbCr skin-chroma clustering fallback (Chai-Ngan 1999)
+ * 3. Scanline luminance gradient regression horizon detection
  * 4. Empty-frame / no-subject discrimination
  */
 
 import type {
   CameraFrame,
   FaceResult,
+  FrameQualityMetrics,
   HorizonResult,
   PerceptionResult,
 } from "@framesense/core";
+import { detectHorizonFromPixels } from "./horizon.js";
+import { evaluateFrameQuality } from "./quality.js";
 import { classifyScene } from "./scene.js";
-import type { PerceptionAdapter } from "./types.js";
+import type { PerceptionAdapter, PerceptionProcessOptions } from "./types.js";
 
 interface BrowserFaceDetector {
   detect(source: ImageBitmap | HTMLVideoElement | HTMLCanvasElement): Promise<
@@ -34,7 +37,7 @@ interface BrowserFaceDetector {
 }
 
 /** Check if pixel is human skin using standard Chai-Ngan YCbCr model */
-function isHumanSkin(r: number, g: number, b: number): boolean {
+export function isHumanSkin(r: number, g: number, b: number): boolean {
   // YCbCr transformation
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
@@ -69,19 +72,27 @@ function extractPixelsFromBitmap(
   return null;
 }
 
-/** Find face/head bounding box using skin-tone density map */
-function detectFaceCluster(
+export interface DetectedClusterBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly confidence: number;
+}
+
+/**
+ * Multi-face connected-component clustering over Chai-Ngan YCbCr skin probabilities.
+ * Isolates multiple faces for GROUP framing and rejects flat large background walls.
+ */
+export function detectFaceClusters(
   data: Uint8ClampedArray,
   w: number,
   h: number,
-): { x: number; y: number; width: number; height: number; confidence: number } | null {
-  // Only inspect upper 75% for face/head (standard portrait rule)
-  const maxScanY = Math.floor(h * 0.78);
+  maxFaces = 5,
+): DetectedClusterBox[] {
+  const maxScanY = Math.floor(h * 0.82);
+  const mask = new Uint8Array(w * maxScanY);
   let totalSkin = 0;
-
-  // Column and row histograms
-  const colSkin = new Int32Array(w);
-  const rowSkin = new Int32Array(maxScanY);
 
   for (let y = 0; y < maxScanY; y++) {
     for (let x = 0; x < w; x++) {
@@ -90,114 +101,144 @@ function detectFaceCluster(
       const g = data[idx + 1];
       const b = data[idx + 2];
       if (r !== undefined && g !== undefined && b !== undefined && isHumanSkin(r, g, b)) {
-        colSkin[x]++;
-        rowSkin[y]++;
+        mask[y * w + x] = 1;
         totalSkin++;
       }
     }
   }
 
-  // If skin pixels are less than 1.2% of sampled area, no person is in front of camera
   const totalPixels = w * maxScanY;
-  if (totalSkin < totalPixels * 0.012) {
-    return null;
+  if (totalSkin < totalPixels * 0.008) {
+    return [];
   }
 
-  // Find 10th and 90th percentiles to eliminate stray pixel outliers
-  let acc = 0;
-  const startThreshold = totalSkin * 0.08;
-  const endThreshold = totalSkin * 0.92;
+  const visited = new Uint8Array(w * maxScanY);
+  const minClusterPixels = Math.max(12, Math.floor(totalPixels * 0.006));
+  const candidates: Array<DetectedClusterBox & { area: number }> = [];
 
-  let minX = 0;
-  let maxX = w - 1;
-  for (let x = 0; x < w; x++) {
-    acc += colSkin[x];
-    if (acc >= startThreshold && minX === 0) minX = x;
-    if (acc >= endThreshold) {
-      maxX = x;
-      break;
+  const queueX = new Int32Array(w * maxScanY);
+  const queueY = new Int32Array(w * maxScanY);
+
+  for (let sy = 0; sy < maxScanY; sy++) {
+    for (let sx = 0; sx < w; sx++) {
+      const startIdx = sy * w + sx;
+      if (mask[startIdx] !== 1 || visited[startIdx] === 1) continue;
+
+      let head = 0;
+      let tail = 0;
+      queueX[tail] = sx;
+      queueY[tail] = sy;
+      tail++;
+      visited[startIdx] = 1;
+
+      let minX = sx;
+      let maxX = sx;
+      let minY = sy;
+      let maxY = sy;
+      let minLum = 255;
+      let maxLum = 0;
+
+      while (head < tail) {
+        const cx = queueX[head] ?? 0;
+        const cy = queueY[head] ?? 0;
+        head++;
+
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+
+        const pIdx = (cy * w + cx) * 4;
+        const lum =
+          0.299 * (data[pIdx] ?? 0) +
+          0.587 * (data[pIdx + 1] ?? 0) +
+          0.114 * (data[pIdx + 2] ?? 0);
+        if (lum < minLum) minLum = lum;
+        if (lum > maxLum) maxLum = lum;
+
+        // 4-connected neighbors
+        const neighbors: [number, number][] = [
+          [cx - 1, cy],
+          [cx + 1, cy],
+          [cx, cy - 1],
+          [cx, cy + 1],
+        ];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= maxScanY) continue;
+          const nIdx = ny * w + nx;
+          if (mask[nIdx] === 1 && visited[nIdx] === 0) {
+            visited[nIdx] = 1;
+            queueX[tail] = nx;
+            queueY[tail] = ny;
+            tail++;
+          }
+        }
+      }
+
+      const pixelCount = tail;
+      if (pixelCount < minClusterPixels) continue;
+
+      const compW = maxX - minX + 1;
+      const compH = maxY - minY + 1;
+      const aspect = compW / Math.max(1, compH);
+      const frameAreaRatio = pixelCount / totalPixels;
+
+      // Reject elongated background strips and uniform flat warm-colored walls
+      if (aspect < 0.35 || aspect > 1.75) continue;
+      if (frameAreaRatio > 0.48 && maxLum - minLum < 10) continue;
+
+      const padX = Math.round(compW * 0.12);
+      const padY = Math.round(compH * 0.16);
+      const finalMinX = Math.max(0, minX - padX);
+      const finalMaxX = Math.min(w - 1, maxX + padX);
+      const finalMinY = Math.max(0, minY - padY);
+      const finalMaxY = Math.min(h - 1, maxY + padY);
+
+      const normX = finalMinX / w;
+      const normY = finalMinY / h;
+      const normW = Math.max(0.01, (finalMaxX - finalMinX) / w);
+      const normH = Math.max(0.01, (finalMaxY - finalMinY) / h);
+      const boxArea = normW * normH;
+      const confidence = Math.min(0.95, Math.max(0.65, 0.52 + boxArea * 1.4));
+
+      candidates.push({
+        x: Number(normX.toFixed(3)),
+        y: Number(normY.toFixed(3)),
+        width: Number(normW.toFixed(3)),
+        height: Number(normH.toFixed(3)),
+        confidence: Number(confidence.toFixed(2)),
+        area: pixelCount,
+      });
     }
   }
 
-  acc = 0;
-  let minY = 0;
-  let maxY = maxScanY - 1;
-  for (let y = 0; y < maxScanY; y++) {
-    acc += rowSkin[y];
-    if (acc >= startThreshold && minY === 0) minY = y;
-    if (acc >= endThreshold) {
-      maxY = y;
-      break;
-    }
-  }
-
-  if (maxX <= minX || maxY <= minY) return null;
-
-  // Add slight margin for hair/chin
-  const padX = Math.round((maxX - minX) * 0.12);
-  const padY = Math.round((maxY - minY) * 0.18);
-
-  const finalMinX = Math.max(0, minX - padX);
-  const finalMaxX = Math.min(w - 1, maxX + padX);
-  const finalMinY = Math.max(0, minY - padY);
-  const finalMaxY = Math.min(h - 1, maxY + padY);
-
-  const normX = finalMinX / w;
-  const normY = finalMinY / h;
-  const normW = (finalMaxX - finalMinX) / w;
-  const normH = (finalMaxY - finalMinY) / h;
-
-  // Confidence based on cluster coherence
-  const boxArea = normW * normH;
-  const confidence = Math.min(0.95, Math.max(0.65, 0.5 + boxArea * 1.5));
-
-  return {
-    x: Number(normX.toFixed(3)),
-    y: Number(normY.toFixed(3)),
-    width: Number(normW.toFixed(3)),
-    height: Number(normH.toFixed(3)),
-    confidence: Number(confidence.toFixed(2)),
-  };
+  candidates.sort((a, b) => b.area - a.area);
+  return candidates.slice(0, maxFaces).map(({ x, y, width, height, confidence }) => ({
+    x,
+    y,
+    width,
+    height,
+    confidence,
+  }));
 }
 
-/** Estimate horizon tilt angle from brightness gradient across left vs right */
-function estimateHorizonTilt(data: Uint8ClampedArray, w: number, h: number): HorizonResult {
-  // Compare average vertical center of mass in left third vs right third
-  const thirdW = Math.floor(w / 3);
-  let leftMass = 0;
-  let leftYSum = 0;
-  let rightMass = 0;
-  let rightYSum = 0;
+/** Find primary face/head bounding box using connected skin-tone cluster density map */
+export function detectFaceCluster(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+): DetectedClusterBox | null {
+  return detectFaceClusters(data, w, h, 1)[0] ?? null;
+}
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < thirdW; x++) {
-      const idx = (y * w + x) * 4;
-      const lum = 0.299 * (data[idx] ?? 0) + 0.587 * (data[idx + 1] ?? 0) + 0.114 * (data[idx + 2] ?? 0);
-      leftMass += lum;
-      leftYSum += lum * y;
-    }
-    for (let x = w - thirdW; x < w; x++) {
-      const idx = (y * w + x) * 4;
-      const lum = 0.299 * (data[idx] ?? 0) + 0.587 * (data[idx + 1] ?? 0) + 0.114 * (data[idx + 2] ?? 0);
-      rightMass += lum;
-      rightYSum += lum * y;
-    }
-  }
-
-  if (leftMass < 100 || rightMass < 100) {
-    return { detected: false, confidence: 0 };
-  }
-
-  const leftCenterY = leftYSum / leftMass;
-  const rightCenterY = rightYSum / rightMass;
-  const deltaY = (rightCenterY - leftCenterY) / h;
-  // Tilt angle in degrees: approx deltaY * 30 deg
-  const angleDegrees = Number((deltaY * 32).toFixed(1));
-
+function mirrorFaceBoxHorizontally(face: FaceResult): FaceResult {
+  const flippedX = Math.max(0, Math.min(1, 1 - face.boundingBox.x - face.boundingBox.width));
   return {
-    detected: true,
-    angleDegrees,
-    confidence: 0.85,
+    ...face,
+    boundingBox: {
+      ...face.boundingBox,
+      x: Number(flippedX.toFixed(3)),
+    },
   };
 }
 
@@ -216,7 +257,7 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
       if (globalScope && "FaceDetector" in globalScope) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const DetectorClass = (globalScope as any).FaceDetector;
-        this.nativeDetector = new DetectorClass({ fastMode: true, maxDetectedFaces: 1 });
+        this.nativeDetector = new DetectorClass({ fastMode: true, maxDetectedFaces: 5 });
         this.nativeAvailable = true;
       }
     } catch {
@@ -224,7 +265,10 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
     }
   }
 
-  public async processFrame(frame: CameraFrame): Promise<PerceptionResult> {
+  public async processFrame(
+    frame: CameraFrame,
+    options?: PerceptionProcessOptions,
+  ): Promise<PerceptionResult> {
     const t0 = performance.now();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -232,50 +276,71 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
 
     let faces: FaceResult[] = [];
     let horizon: HorizonResult | undefined;
+    let quality: FrameQualityMetrics | undefined;
+    let nativeSucceeded = false;
 
-    if (bitmap) {
-      // 1. Try native FaceDetector if available
-      if (this.nativeAvailable && this.nativeDetector) {
-        try {
-          const detections = await this.nativeDetector.detect(bitmap);
-          if (detections && detections.length > 0) {
-            faces = detections.map((d) => ({
-              boundingBox: {
-                x: Number((d.boundingBox.x / bitmap.width).toFixed(3)),
-                y: Number((d.boundingBox.y / bitmap.height).toFixed(3)),
-                width: Number((d.boundingBox.width / bitmap.width).toFixed(3)),
-                height: Number((d.boundingBox.height / bitmap.height).toFixed(3)),
-              },
-              confidence: 0.94,
-            }));
-          }
-        } catch {
-          this.nativeAvailable = false;
+    if (bitmap && this.nativeAvailable && this.nativeDetector) {
+      try {
+        const detections = await this.nativeDetector.detect(bitmap);
+        nativeSucceeded = true;
+        if (detections && detections.length > 0) {
+          faces = detections.map((d) => ({
+            boundingBox: {
+              x: Number((d.boundingBox.x / bitmap.width).toFixed(3)),
+              y: Number((d.boundingBox.y / bitmap.height).toFixed(3)),
+              width: Number((d.boundingBox.width / bitmap.width).toFixed(3)),
+              height: Number((d.boundingBox.height / bitmap.height).toFixed(3)),
+            },
+            confidence: 0.94,
+          }));
+        }
+      } catch {
+        this.nativeAvailable = false;
+      }
+    }
+
+    // Resolve pixel buffer from explicit options or transferred ImageBitmap
+    const pixels = options?.pixelData
+      ? { data: options.pixelData.data, w: options.pixelData.width, h: options.pixelData.height }
+      : bitmap
+        ? extractPixelsFromBitmap(bitmap, 120, 80)
+        : null;
+
+    if (pixels) {
+      // Only fall back to deterministic connected-component chroma clustering when native FaceDetector is unavailable
+      if (!nativeSucceeded) {
+        const clusters = detectFaceClusters(pixels.data, pixels.w, pixels.h, 5);
+        if (clusters.length > 0) {
+          faces = clusters.map((cluster) => ({
+            boundingBox: {
+              x: cluster.x,
+              y: cluster.y,
+              width: cluster.width,
+              height: cluster.height,
+            },
+            confidence: cluster.confidence,
+          }));
         }
       }
 
-      // 2. High-accuracy deterministic fallback
-      const pixels = extractPixelsFromBitmap(bitmap, 120, 80);
-      if (pixels) {
-        if (faces.length === 0) {
-          const cluster = detectFaceCluster(pixels.data, pixels.w, pixels.h);
-          if (cluster) {
-            faces = [
-              {
-                boundingBox: {
-                  x: cluster.x,
-                  y: cluster.y,
-                  width: cluster.width,
-                  height: cluster.height,
-                },
-                confidence: cluster.confidence,
-              },
-            ];
-          }
-        }
-
-        horizon = estimateHorizonTilt(pixels.data, pixels.w, pixels.h);
+      if (options?.detectHorizon !== false) {
+        horizon = detectHorizonFromPixels({
+          data: pixels.data,
+          width: pixels.w,
+          height: pixels.h,
+        });
       }
+
+      quality = evaluateFrameQuality(
+        { data: pixels.data, width: pixels.w, height: pixels.h },
+        faces[0]?.boundingBox,
+      );
+    }
+
+    // Align normalized x-coordinates with mirrored selfie preview when requested
+    const isMirrored = frame.payload.metadata?.mirrored === true;
+    if (isMirrored && faces.length > 0) {
+      faces = faces.map(mirrorFaceBoxHorizontally);
     }
 
     const scene = classifyScene({ faces, detections: [], horizon });
@@ -288,9 +353,10 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
       poses: [],
       horizon,
       scene,
+      quality,
       metadata: {
         processingTimeMs: Number((performance.now() - t0).toFixed(2)),
-        backend: this.nativeAvailable ? "native-FaceDetector" : "chroma-cluster",
+        backend: nativeSucceeded ? "native-FaceDetector" : "chroma-cluster",
       },
     };
   }

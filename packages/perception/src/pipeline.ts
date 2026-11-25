@@ -54,7 +54,7 @@ export class PipelineProcessor {
 
     const composition = evaluateComposition(compositionContext, {
       config: this.config.composition,
-      profileOverride: perception.scene?.type,
+      profileOverride: options?.profileOverride ?? perception.scene?.type,
     });
 
     // 3. Guidance & Capture Decision

@@ -55,6 +55,15 @@ export interface PerceptionMetadata {
   readonly backend?: string;
 }
 
+export type FrameQualityStatus = "OPTIMAL" | "LOW_LIGHT" | "OVEREXPOSED" | "BACKLIT" | "BLURRY";
+
+export interface FrameQualityMetrics {
+  readonly brightness: number;
+  readonly sharpness: number;
+  readonly status: FrameQualityStatus;
+  readonly warning?: string;
+}
+
 export interface PerceptionResult {
   readonly frameId: string;
   readonly timestamp: number;
@@ -63,5 +72,6 @@ export interface PerceptionResult {
   readonly poses: readonly PoseResult[];
   readonly horizon?: HorizonResult;
   readonly scene?: SceneResult;
+  readonly quality?: FrameQualityMetrics;
   readonly metadata?: PerceptionMetadata;
 }

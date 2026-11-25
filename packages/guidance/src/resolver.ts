@@ -74,22 +74,22 @@ export function resolveIssueToAction(issue: CompositionIssue): ResolvedAction {
         };
       }
       if (msg.includes("left")) {
-        // If subject is framed too far left, camera needs to shift right
-        return {
-          action: "MOVE_RIGHT",
-          direction: "RIGHT",
-          priority: "MEDIUM",
-          message: "Pan camera right",
-          reason: issue.message,
-        };
-      }
-      if (msg.includes("right")) {
-        // If subject is framed too far right, camera needs to shift left
+        // Subject is framed too far left in the viewfinder: pan camera left to center it
         return {
           action: "MOVE_LEFT",
           direction: "LEFT",
           priority: "MEDIUM",
           message: "Pan camera left",
+          reason: issue.message,
+        };
+      }
+      if (msg.includes("right")) {
+        // Subject is framed too far right in the viewfinder: pan camera right to center it
+        return {
+          action: "MOVE_RIGHT",
+          direction: "RIGHT",
+          priority: "MEDIUM",
+          message: "Pan camera right",
           reason: issue.message,
         };
       }

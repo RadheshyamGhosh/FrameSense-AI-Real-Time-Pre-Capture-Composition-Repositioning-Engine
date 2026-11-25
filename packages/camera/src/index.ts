@@ -1,3 +1,9 @@
+export {
+  computeAspectCropRect,
+  getAspectRatioValue,
+  type AspectRatioPreset,
+  type CropRect,
+} from "./crop.js";
 export { CameraManager, type MediaDevicesProvider } from "./manager.js";
 export { FrameSampler, type FrameSamplerOptions } from "./sampler.js";
 export {

@@ -224,3 +224,42 @@ test("respects custom CompositionConfig overrides", () => {
   const horizonIssue = result.issues.find((i) => i.metricType === "HORIZON_ALIGNMENT");
   assert.ok(horizonIssue, "Expected issue under strict 1.0 degree tolerance");
 });
+
+test("emits consistent pan directions when subject is framed far left or far right", () => {
+  const leftContext = createMockContext({
+    scene: "PORTRAIT",
+    perception: {
+      faces: [{ boundingBox: { x: 0.02, y: 0.15, width: 0.2, height: 0.35 }, confidence: 0.9 }],
+    },
+  });
+  const leftResult = evaluateComposition(leftContext);
+  const leftIssue = leftResult.issues.find((i) => i.metricType === "RULE_OF_THIRDS");
+  assert.ok(leftIssue);
+  assert.match(leftIssue.message, /Pan camera left/i);
+
+  const rightContext = createMockContext({
+    scene: "PORTRAIT",
+    perception: {
+      faces: [{ boundingBox: { x: 0.82, y: 0.15, width: 0.16, height: 0.35 }, confidence: 0.9 }],
+    },
+  });
+  const rightResult = evaluateComposition(rightContext);
+  const rightIssue = rightResult.issues.find((i) => i.metricType === "RULE_OF_THIRDS");
+  assert.ok(rightIssue);
+  assert.match(rightIssue.message, /Pan camera right/i);
+});
+
+test("exposes tracked subject bounds, focal point, and signed horizon angle in CompositionResult", () => {
+  const context = createMockContext({
+    scene: "PORTRAIT",
+    perception: {
+      faces: [{ boundingBox: { x: 0.3, y: 0.15, width: 0.3, height: 0.4 }, confidence: 0.9 }],
+      horizon: { detected: true, angleDegrees: -4.2, confidence: 0.85 },
+    },
+  });
+
+  const result = evaluateComposition(context);
+  assert.deepEqual(result.primarySubjectBounds, { x: 0.3, y: 0.15, width: 0.3, height: 0.4 });
+  assert.ok(result.primaryFocalPoint);
+  assert.equal(result.horizonAngleDegrees, -4.2);
+});

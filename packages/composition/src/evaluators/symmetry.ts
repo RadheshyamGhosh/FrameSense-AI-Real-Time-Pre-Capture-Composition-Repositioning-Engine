@@ -53,7 +53,7 @@ export function evaluateSymmetryAndPosition(
       positionIssue = {
         metricType: "SUBJECT_POSITION" as const,
         severity: "LOW" as const,
-        message: centerX < 0.5 ? "Center subject: shift slightly right." : "Center subject: shift slightly left.",
+        message: centerX < 0.5 ? "Subject is too far left of center. Pan camera left." : "Subject is too far right of center. Pan camera right.",
       };
     }
   } else {

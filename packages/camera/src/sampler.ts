@@ -7,6 +7,7 @@ export interface FrameSamplerOptions {
   readonly maxHeight?: number;
   readonly deviceId?: string;
   readonly orientation?: FrameOrientation;
+  readonly mirrorHorizontal?: boolean;
 }
 
 export class FrameSampler {
@@ -15,6 +16,7 @@ export class FrameSampler {
   private readonly maxHeight: number;
   private readonly deviceId?: string;
   private readonly orientation: FrameOrientation;
+  private readonly mirrorHorizontal: boolean;
   private readonly minIntervalMs: number;
 
   private frameCounter = 0;
@@ -28,6 +30,7 @@ export class FrameSampler {
     this.maxHeight = options?.maxHeight ?? 360;
     this.deviceId = options?.deviceId;
     this.orientation = options?.orientation ?? "LANDSCAPE";
+    this.mirrorHorizontal = options?.mirrorHorizontal ?? false;
     this.minIntervalMs = 1000 / this.targetFps;
   }
 
@@ -36,7 +39,7 @@ export class FrameSampler {
    */
   public async captureFrameFromVideo(
     videoElement: HTMLVideoElement,
-    timestamp: number = Date.now(),
+    timestamp: number = performance.now(),
   ): Promise<ExtractedFrame | null> {
     const videoWidth = videoElement.videoWidth || 1920;
     const videoHeight = videoElement.videoHeight || 1080;
@@ -86,6 +89,7 @@ export class FrameSampler {
           originalWidth: videoWidth,
           originalHeight: videoHeight,
           scale,
+          mirrored: this.mirrorHorizontal,
         },
       },
     };
@@ -114,7 +118,7 @@ export class FrameSampler {
 
       if (elapsed >= this.minIntervalMs) {
         this.lastSampleTime = now;
-        const extracted = await this.captureFrameFromVideo(videoElement, Date.now());
+        const extracted = await this.captureFrameFromVideo(videoElement, performance.now());
         if (extracted) {
           onFrame(extracted);
         }

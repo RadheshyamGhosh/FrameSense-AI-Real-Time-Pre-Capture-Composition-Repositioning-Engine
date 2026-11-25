@@ -7,6 +7,7 @@ import {
   FrameSampler,
   PipelineWorkerBridge,
   SyntheticCameraSource,
+  computeAspectCropRect,
 } from "../dist/index.js";
 
 // Mock MediaStreamTrack
@@ -117,8 +118,8 @@ test("CameraManager maps DOMExceptions to typed CameraError codes", async () => 
   assert.equal(manager.getStatus(), "ERROR");
 });
 
-test("FrameSampler downscales aspect-preserving dimensions", async () => {
-  const sampler = new FrameSampler({ maxWidth: 640, maxHeight: 360 });
+test("FrameSampler downscales aspect-preserving dimensions and propagates mirrorHorizontal", async () => {
+  const sampler = new FrameSampler({ maxWidth: 640, maxHeight: 360, mirrorHorizontal: true });
 
   // Mock video element
   const mockVideo = {
@@ -126,11 +127,14 @@ test("FrameSampler downscales aspect-preserving dimensions", async () => {
     videoHeight: 1080,
   };
 
-  const extracted = await sampler.captureFrameFromVideo(mockVideo, 2000);
+  const extracted = await sampler.captureFrameFromVideo(mockVideo);
   assert.ok(extracted);
   assert.equal(extracted.cameraFrame.width, 640);
   assert.equal(extracted.cameraFrame.height, 360);
   assert.equal(extracted.cameraFrame.source.type, "WEBCAM");
+  assert.equal(extracted.cameraFrame.payload.metadata.mirrored, true);
+  // Default timestamp must align with monotonic performance.now() rather than epoch Date.now()
+  assert.ok(extracted.cameraFrame.timestamp < 1_000_000_000_000);
 });
 
 test("PipelineWorkerBridge handles message round-trip, busy throttling, and error dispatch", () => {
@@ -219,4 +223,18 @@ test("PipelineWorkerBridge handles message round-trip, busy throttling, and erro
     },
   });
   assert.equal(receivedError, "Worker inference failure");
+});
+
+test("computeAspectCropRect crops centered regions accurately for 1:1, 9:16, and viewport cover", () => {
+  // 1280x720 into 1:1 square -> 720x720 centered at x = (1280-720)/2 = 280
+  const square = computeAspectCropRect(1280, 720, "1:1");
+  assert.deepEqual(square, { sx: 280, sy: 0, sw: 720, sh: 720 });
+
+  // 1280x720 into 9:16 vertical -> 405x720 centered
+  const portrait = computeAspectCropRect(1280, 720, "9:16");
+  assert.deepEqual(portrait, { sx: 438, sy: 0, sw: 405, sh: 720 });
+
+  // VIEWPORT match for tall container (e.g. 600x800 -> ratio 0.75) crops 1280x720 to 540x720
+  const viewportCrop = computeAspectCropRect(1280, 720, "VIEWPORT", 600, 800);
+  assert.deepEqual(viewportCrop, { sx: 370, sy: 0, sw: 540, sh: 720 });
 });

@@ -105,11 +105,11 @@ export class DiagnosticsCollector {
     const meetsCameraFps = sample.cameraFps >= target.targetCameraFps * 0.8;
     // Processing FPS passes if it achieves at least 80% of target (e.g. 12 of 15 fps)
     const meetsProcessingFps = sample.processingFps >= target.targetProcessingFps * 0.8;
-    // Latencies pass if they are less than or equal to targets
+    // Latencies pass only when non-negative and within configured budgets
     const meetsInferenceLatency =
-      sample.inferenceLatencyMs <= target.targetInferenceLatencyMs || sample.inferenceLatencyMs === 0;
+      sample.inferenceLatencyMs >= 0 && sample.inferenceLatencyMs <= target.targetInferenceLatencyMs;
     const meetsEndToEndLatency =
-      sample.endToEndLatencyMs <= target.targetEndToEndLatencyMs || sample.endToEndLatencyMs === 0;
+      sample.endToEndLatencyMs >= 0 && sample.endToEndLatencyMs <= target.targetEndToEndLatencyMs;
 
     const allPass =
       meetsCameraFps && meetsProcessingFps && meetsInferenceLatency && meetsEndToEndLatency;

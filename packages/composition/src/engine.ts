@@ -161,5 +161,10 @@ export function evaluateComposition(
     metrics,
     issues,
     profile,
+    primarySubjectBounds: subject.confidence > 0 ? subject.boundingBox : undefined,
+    primaryFocalPoint: subject.confidence > 0 ? subject.focalPoint : undefined,
+    horizonAngleDegrees:
+      context.perception.horizon?.detected ? context.perception.horizon.angleDegrees : undefined,
+    frameQuality: context.perception.quality,
   };
 }

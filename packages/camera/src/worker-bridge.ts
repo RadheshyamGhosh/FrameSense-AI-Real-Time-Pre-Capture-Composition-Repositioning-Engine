@@ -96,12 +96,15 @@ export class PipelineWorkerBridge {
       this.isBusy = false;
     }, 450);
 
+    const profileMeta = extracted.cameraFrame.payload.metadata?.profileOverride;
     const msg: WorkerInboundMessage = {
       type: "PROCESS_FRAME",
       frameId: extracted.cameraFrame.frameId,
       timestamp: extracted.cameraFrame.timestamp,
       width: extracted.cameraFrame.width,
       height: extracted.cameraFrame.height,
+      mirrored: extracted.cameraFrame.payload.metadata?.mirrored === true,
+      profileOverride: typeof profileMeta === "string" ? (profileMeta as WorkerInboundMessage extends { profileOverride?: infer P } ? P : never) : undefined,
       bitmap: extracted.bitmap,
     };
 

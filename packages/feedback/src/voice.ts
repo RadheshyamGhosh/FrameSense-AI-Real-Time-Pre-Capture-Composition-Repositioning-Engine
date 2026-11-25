@@ -55,6 +55,7 @@ export interface VoiceAnnouncerOptions {
   readonly pitch?: number;
   readonly volume?: number;
   readonly defaultMaxRepeats?: number;
+  readonly minIntervalMs?: number;
 }
 
 export class VoiceAnnouncer {
@@ -64,8 +65,10 @@ export class VoiceAnnouncer {
   private readonly pitch: number;
   private readonly volume: number;
   private readonly defaultMaxRepeats: number;
+  private readonly minIntervalMs: number;
 
   private lastSpokenText: string | null = null;
+  private lastSpokenTimestamp = -Infinity;
   private repeatCount = 0;
 
   constructor(options?: VoiceAnnouncerOptions) {
@@ -75,6 +78,7 @@ export class VoiceAnnouncer {
     this.pitch = options?.pitch ?? 1.0;
     this.volume = options?.volume ?? 1.0;
     this.defaultMaxRepeats = options?.defaultMaxRepeats ?? 4;
+    this.minIntervalMs = options?.minIntervalMs ?? 0;
   }
 
   public setEnabled(enabled: boolean): void {
@@ -89,14 +93,24 @@ export class VoiceAnnouncer {
   }
 
   /**
-   * Evaluates text and priority to decide whether to speak the utterance.
+   * Evaluates text, priority, repeat caps, and natural speech cooldown
+   * to decide whether to speak the utterance.
    */
   public announce(
     text: string,
     priority: GuidancePriority,
     maxRepeats?: number,
+    timestampMs: number = Date.now(),
   ): boolean {
     if (!this.enabled || !text.trim()) {
+      return false;
+    }
+
+    if (
+      this.minIntervalMs > 0 &&
+      priority !== "URGENT" &&
+      timestampMs - this.lastSpokenTimestamp < this.minIntervalMs
+    ) {
       return false;
     }
 
@@ -123,6 +137,7 @@ export class VoiceAnnouncer {
       return false;
     }
 
+    this.lastSpokenTimestamp = timestampMs;
     this.provider.speak(text, {
       rate: this.rate,
       pitch: this.pitch,
@@ -135,6 +150,7 @@ export class VoiceAnnouncer {
   public cancel(): void {
     this.provider.cancel();
     this.lastSpokenText = null;
+    this.lastSpokenTimestamp = -Infinity;
     this.repeatCount = 0;
   }
 

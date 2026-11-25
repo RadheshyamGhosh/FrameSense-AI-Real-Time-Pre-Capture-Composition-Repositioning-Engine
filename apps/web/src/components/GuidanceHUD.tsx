@@ -20,6 +20,7 @@ export function GuidanceHUD({ guidance, composition }: GuidanceHUDProps) {
   }
 
   const message = guidance?.message || "Aligning camera feed...";
+  const qualityWarning = composition?.frameQuality?.warning;
 
   // Action direction arrow
   const getDirectionArrow = () => {
@@ -53,12 +54,21 @@ export function GuidanceHUD({ guidance, composition }: GuidanceHUDProps) {
         <span className="score-label">{gradeLabel}</span>
       </div>
 
-      {/* Main Guidance Banner */}
-      <div className="guidance-pill" role="status" aria-live="polite">
-        <span className="guidance-icon" aria-hidden="true">
-          {getDirectionArrow()}
-        </span>
-        <span className="guidance-text">{message}</span>
+      <div className="guidance-center-stack">
+        {/* Main Guidance Banner */}
+        <div className="guidance-pill" role="status" aria-live="polite">
+          <span className="guidance-icon" aria-hidden="true">
+            {getDirectionArrow()}
+          </span>
+          <span className="guidance-text">{message}</span>
+        </div>
+
+        {/* Real-Time Lighting / Blur Quality Warning */}
+        {qualityWarning && (
+          <div className="quality-warning-pill" role="status">
+            {qualityWarning}
+          </div>
+        )}
       </div>
 
       {/* Profile Tag */}

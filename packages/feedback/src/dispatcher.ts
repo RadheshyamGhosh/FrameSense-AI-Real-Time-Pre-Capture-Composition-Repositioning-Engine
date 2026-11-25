@@ -5,29 +5,44 @@ import type {
   GuidanceResult,
 } from "@framesense/core";
 import { HapticController } from "./haptics.js";
+import { SoundController } from "./sound.js";
 import type { FeedbackListener, FeedbackSettings } from "./types.js";
 import { VoiceAnnouncer } from "./voice.js";
 
 export interface FeedbackDispatcherOptions {
   readonly voiceAnnouncer?: VoiceAnnouncer;
   readonly hapticController?: HapticController;
+  readonly soundController?: SoundController;
   readonly initialSettings?: Partial<FeedbackSettings>;
+  readonly maxRepeatedAnnouncements?: number;
+  readonly voiceMinIntervalMs?: number;
 }
 
 export class FeedbackDispatcher {
   private readonly voice: VoiceAnnouncer;
   private readonly haptics: HapticController;
+  private readonly sound: SoundController;
   private readonly listeners: Set<FeedbackListener> = new Set();
+  private readonly maxRepeatedAnnouncements?: number;
   private settings: FeedbackSettings;
+  private wasCaptureReady = false;
 
   constructor(options?: FeedbackDispatcherOptions) {
-    this.voice = options?.voiceAnnouncer ?? new VoiceAnnouncer();
+    this.voice =
+      options?.voiceAnnouncer ??
+      new VoiceAnnouncer({
+        defaultMaxRepeats: options?.maxRepeatedAnnouncements ?? 2,
+        minIntervalMs: options?.voiceMinIntervalMs ?? 2200,
+      });
     this.haptics = options?.hapticController ?? new HapticController();
+    this.sound = options?.soundController ?? new SoundController();
+    this.maxRepeatedAnnouncements = options?.maxRepeatedAnnouncements;
 
     this.settings = {
       voiceEnabled: options?.initialSettings?.voiceEnabled ?? true,
       hapticsEnabled: options?.initialSettings?.hapticsEnabled ?? true,
       visualEnabled: options?.initialSettings?.visualEnabled ?? true,
+      soundEnabled: options?.initialSettings?.soundEnabled ?? true,
       voiceRate: options?.initialSettings?.voiceRate ?? 1.1,
       voicePitch: options?.initialSettings?.voicePitch ?? 1.0,
       voiceVolume: options?.initialSettings?.voiceVolume ?? 1.0,
@@ -35,6 +50,7 @@ export class FeedbackDispatcher {
 
     this.voice.setEnabled(this.settings.voiceEnabled);
     this.haptics.setEnabled(this.settings.hapticsEnabled);
+    this.sound.setEnabled(this.settings.soundEnabled ?? true);
   }
 
   public updateSettings(partial: Partial<FeedbackSettings>): void {
@@ -44,6 +60,9 @@ export class FeedbackDispatcher {
     }
     if (partial.hapticsEnabled !== undefined) {
       this.haptics.setEnabled(partial.hapticsEnabled);
+    }
+    if (partial.soundEnabled !== undefined) {
+      this.sound.setEnabled(partial.soundEnabled);
     }
   }
 
@@ -86,7 +105,12 @@ export class FeedbackDispatcher {
 
     // 2. Voice command
     if (this.settings.voiceEnabled && guidance.message) {
-      const spoken = this.voice.announce(guidance.message, guidance.priority);
+      const spoken = this.voice.announce(
+        guidance.message,
+        guidance.priority,
+        this.maxRepeatedAnnouncements,
+        timestamp,
+      );
       if (spoken) {
         commands.push({
           channel: "VOICE" as FeedbackChannel,
@@ -98,7 +122,14 @@ export class FeedbackDispatcher {
       }
     }
 
-    // 3. Haptic command
+    // 3. Sound chime on lock transition
+    const isReadyNow = Boolean(capture?.ready);
+    if (isReadyNow && !this.wasCaptureReady && (this.settings.soundEnabled ?? true)) {
+      this.sound.playLockChime();
+    }
+    this.wasCaptureReady = isReadyNow;
+
+    // 4. Haptic command
     if (this.settings.hapticsEnabled) {
       if (capture?.ready) {
         this.haptics.triggerCaptureReady();
@@ -126,7 +157,17 @@ export class FeedbackDispatcher {
     return commands;
   }
 
+  public triggerShutterFeedback(): void {
+    if (this.settings.soundEnabled ?? true) {
+      this.sound.playShutterClick();
+    }
+    if (this.settings.hapticsEnabled) {
+      this.haptics.triggerShutter();
+    }
+  }
+
   public reset(): void {
+    this.wasCaptureReady = false;
     this.voice.cancel();
     this.haptics.cancel();
   }

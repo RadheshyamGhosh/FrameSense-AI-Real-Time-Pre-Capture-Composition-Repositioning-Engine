@@ -1,4 +1,5 @@
-import type { PerceptionResult, SceneType } from "../perception";
+import type { BoundingBox, Point2D } from "../geometry";
+import type { FrameQualityMetrics, PerceptionResult, SceneType } from "../perception";
 
 export interface FrameDimensions {
   readonly width: number;
@@ -43,4 +44,12 @@ export interface CompositionResult {
   readonly metrics: readonly CompositionMetric[];
   readonly issues: readonly CompositionIssue[];
   readonly profile: SceneType;
+  /** Primary tracked subject box in normalized 0..1 coordinates (when detected). */
+  readonly primarySubjectBounds?: BoundingBox;
+  /** Visual focal point (e.g. eye-line) in normalized 0..1 coordinates (when detected). */
+  readonly primaryFocalPoint?: Point2D;
+  /** Signed horizon tilt angle in degrees (when detected). */
+  readonly horizonAngleDegrees?: number;
+  /** Deterministic lighting, exposure, and motion-blur assessment. */
+  readonly frameQuality?: FrameQualityMetrics;
 }

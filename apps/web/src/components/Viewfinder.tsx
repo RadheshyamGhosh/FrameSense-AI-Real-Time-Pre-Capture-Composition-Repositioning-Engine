@@ -1,13 +1,20 @@
 import { useEffect, useRef } from "react";
+import { computeAspectCropRect, type AspectRatioPreset } from "@framesense/camera";
 import type { CompositionResult } from "@framesense/core";
 
 export interface ViewfinderProps {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>;
   readonly composition: CompositionResult | null;
   readonly showGrid?: boolean;
+  readonly aspectRatio?: AspectRatioPreset;
 }
 
-export function Viewfinder({ videoRef, composition, showGrid = true }: ViewfinderProps) {
+export function Viewfinder({
+  videoRef,
+  composition,
+  showGrid = true,
+  aspectRatio = "VIEWPORT",
+}: ViewfinderProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -37,31 +44,57 @@ export function Viewfinder({ videoRef, composition, showGrid = true }: Viewfinde
       const H = canvas.height;
       ctx.clearRect(0, 0, W, H);
 
-      // 1. Draw Rule of Thirds Grid if enabled
+      // Compute active crop rectangle for letterbox/pillarbox preview guides
+      const guideRect =
+        aspectRatio === "VIEWPORT"
+          ? { sx: 0, sy: 0, sw: W, sh: H }
+          : computeAspectCropRect(W, H, aspectRatio);
+
+      if (aspectRatio !== "VIEWPORT" && guideRect.sw > 0 && guideRect.sh > 0) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+        if (guideRect.sy > 0) {
+          ctx.fillRect(0, 0, W, guideRect.sy);
+          ctx.fillRect(0, guideRect.sy + guideRect.sh, W, H - (guideRect.sy + guideRect.sh));
+        }
+        if (guideRect.sx > 0) {
+          ctx.fillRect(0, guideRect.sy, guideRect.sx, guideRect.sh);
+          ctx.fillRect(guideRect.sx + guideRect.sw, guideRect.sy, W - (guideRect.sx + guideRect.sw), guideRect.sh);
+        }
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(guideRect.sx, guideRect.sy, guideRect.sw, guideRect.sh);
+      }
+
+      const gx = guideRect.sx;
+      const gy = guideRect.sy;
+      const gw = guideRect.sw;
+      const gh = guideRect.sh;
+
+      // 1. Draw Rule of Thirds Grid inside active crop bounds
       if (showGrid) {
         ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
         ctx.lineWidth = 1;
 
         // Vertical third lines
         ctx.beginPath();
-        ctx.moveTo(W * (1 / 3), 0);
-        ctx.lineTo(W * (1 / 3), H);
-        ctx.moveTo(W * (2 / 3), 0);
-        ctx.lineTo(W * (2 / 3), H);
+        ctx.moveTo(gx + gw * (1 / 3), gy);
+        ctx.lineTo(gx + gw * (1 / 3), gy + gh);
+        ctx.moveTo(gx + gw * (2 / 3), gy);
+        ctx.lineTo(gx + gw * (2 / 3), gy + gh);
 
         // Horizontal third lines
-        ctx.moveTo(0, H * (1 / 3));
-        ctx.lineTo(W, H * (1 / 3));
-        ctx.moveTo(0, H * (2 / 3));
-        ctx.lineTo(W, H * (2 / 3));
+        ctx.moveTo(gx, gy + gh * (1 / 3));
+        ctx.lineTo(gx + gw, gy + gh * (1 / 3));
+        ctx.moveTo(gx, gy + gh * (2 / 3));
+        ctx.lineTo(gx + gw, gy + gh * (2 / 3));
         ctx.stroke();
 
         // 4 Power Points (circle reticles)
         const powerPoints = [
-          { x: W * (1 / 3), y: H * (1 / 3) },
-          { x: W * (2 / 3), y: H * (1 / 3) },
-          { x: W * (1 / 3), y: H * (2 / 3) },
-          { x: W * (2 / 3), y: H * (2 / 3) },
+          { x: gx + gw * (1 / 3), y: gy + gh * (1 / 3) },
+          { x: gx + gw * (2 / 3), y: gy + gh * (1 / 3) },
+          { x: gx + gw * (1 / 3), y: gy + gh * (2 / 3) },
+          { x: gx + gw * (2 / 3), y: gy + gh * (2 / 3) },
         ];
 
         ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
@@ -72,28 +105,27 @@ export function Viewfinder({ videoRef, composition, showGrid = true }: Viewfinde
         }
       }
 
-      // 2. Draw Headroom Indicator Bracket at top (8% to 22% zone)
+      // 2. Draw Headroom Indicator Bracket at top (8% zone inside crop frame)
       ctx.strokeStyle = "rgba(46, 213, 115, 0.25)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
-      ctx.moveTo(W * 0.25, H * 0.08);
-      ctx.lineTo(W * 0.75, H * 0.08);
+      ctx.moveTo(gx + gw * 0.25, gy + gh * 0.08);
+      ctx.lineTo(gx + gw * 0.75, gy + gh * 0.08);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 3. Draw Horizon Level Bar
+      // 3. Draw Signed Real-Time Horizon Level Bar
       const horizonMetric = composition?.metrics.find((m) => m.type === "HORIZON_ALIGNMENT");
       const isHorizonLevel = horizonMetric ? horizonMetric.score >= 90 : true;
+      const angleDeg = composition?.horizonAngleDegrees ?? 0;
+      const angleRad = (angleDeg * Math.PI) / 180;
 
       ctx.save();
       ctx.translate(W / 2, H / 2);
-      // Small tilt visualization
-      const angleDeg = horizonMetric?.errorMagnitude ?? 0;
-      const angleRad = (angleDeg * Math.PI) / 180;
       ctx.rotate(angleRad);
 
-      ctx.strokeStyle = isHorizonLevel ? "rgba(46, 213, 115, 0.7)" : "rgba(255, 171, 0, 0.85)";
+      ctx.strokeStyle = isHorizonLevel ? "rgba(46, 213, 115, 0.75)" : "rgba(255, 171, 0, 0.9)";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(-W * 0.18, 0);
@@ -109,12 +141,114 @@ export function Viewfinder({ videoRef, composition, showGrid = true }: Viewfinde
       ctx.fill();
       ctx.restore();
 
+      if (composition?.horizonAngleDegrees !== undefined) {
+        ctx.save();
+        ctx.font = "600 11px sans-serif";
+        ctx.fillStyle = isHorizonLevel ? "rgba(46, 213, 115, 0.85)" : "rgba(255, 171, 0, 0.95)";
+        ctx.textAlign = "center";
+        ctx.fillText(`${angleDeg.toFixed(1)}°`, W / 2, H / 2 + 22);
+        ctx.restore();
+      }
+
+      // 4. Draw Tracked Subject Reticle & Power-Point Alignment Vector
+      if (composition?.primarySubjectBounds) {
+        const box = composition.primarySubjectBounds;
+        const bx = box.x * W;
+        const by = box.y * H;
+        const bw = box.width * W;
+        const bh = box.height * H;
+        const corner = Math.min(22, Math.max(10, Math.min(bw, bh) * 0.2));
+
+        const subjectColor =
+          composition.overallScore >= 90
+            ? "rgba(46, 213, 115, 0.9)"
+            : composition.overallScore >= 70
+              ? "rgba(30, 144, 255, 0.85)"
+              : "rgba(255, 165, 2, 0.9)";
+
+        ctx.strokeStyle = subjectColor;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        // Top-left bracket
+        ctx.moveTo(bx, by + corner);
+        ctx.lineTo(bx, by);
+        ctx.lineTo(bx + corner, by);
+        // Top-right bracket
+        ctx.moveTo(bx + bw - corner, by);
+        ctx.lineTo(bx + bw, by);
+        ctx.lineTo(bx + bw, by + corner);
+        // Bottom-left bracket
+        ctx.moveTo(bx, by + bh - corner);
+        ctx.lineTo(bx, by + bh);
+        ctx.lineTo(bx + corner, by + bh);
+        // Bottom-right bracket
+        ctx.moveTo(bx + bw - corner, by + bh);
+        ctx.lineTo(bx + bw, by + bh);
+        ctx.lineTo(bx + bw, by + bh - corner);
+        ctx.stroke();
+
+        // Focal eye-line reticle & dashed alignment vector to nearest Rule-of-Thirds target
+        if (composition.primaryFocalPoint) {
+          const fx = composition.primaryFocalPoint.x * W;
+          const fy = composition.primaryFocalPoint.y * H;
+
+          ctx.fillStyle = subjectColor;
+          ctx.beginPath();
+          ctx.arc(fx, fy, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (composition.overallScore < 90) {
+            const candidateTargets =
+              composition.profile === "PORTRAIT" || composition.profile === "ARCHITECTURE"
+                ? [
+                    { x: W * (1 / 3), y: H * (1 / 3) },
+                    { x: W * 0.5, y: H * (1 / 3) },
+                    { x: W * (2 / 3), y: H * (1 / 3) },
+                  ]
+                : [
+                    { x: W * (1 / 3), y: H * (1 / 3) },
+                    { x: W * (2 / 3), y: H * (1 / 3) },
+                    { x: W * (1 / 3), y: H * (2 / 3) },
+                    { x: W * (2 / 3), y: H * (2 / 3) },
+                  ];
+
+            let nearest = candidateTargets[0];
+            let bestDist = Infinity;
+            for (const t of candidateTargets) {
+              const d = Math.hypot(t.x - fx, t.y - fy);
+              if (d < bestDist) {
+                bestDist = d;
+                nearest = t;
+              }
+            }
+
+            if (nearest && bestDist > 12) {
+              ctx.save();
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+              ctx.lineWidth = 1.5;
+              ctx.setLineDash([5, 5]);
+              ctx.beginPath();
+              ctx.moveTo(fx, fy);
+              ctx.lineTo(nearest.x, nearest.y);
+              ctx.stroke();
+
+              ctx.beginPath();
+              ctx.arc(nearest.x, nearest.y, 7, 0, Math.PI * 2);
+              ctx.strokeStyle = subjectColor;
+              ctx.setLineDash([]);
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+        }
+      }
+
       animId = requestAnimationFrame(renderOverlay);
     };
 
     animId = requestAnimationFrame(renderOverlay);
     return () => cancelAnimationFrame(animId);
-  }, [composition, showGrid, videoRef]);
+  }, [aspectRatio, composition, showGrid, videoRef]);
 
   return (
     <div className="viewfinder-container">

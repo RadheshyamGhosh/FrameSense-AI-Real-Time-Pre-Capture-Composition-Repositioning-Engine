@@ -4,9 +4,13 @@ import test from "node:test";
 import {
   MockPerceptionAdapter,
   PipelineProcessor,
+  RealPerceptionAdapter,
   classifyScene,
+  detectFaceCluster,
+  detectFaceClusters,
   detectHorizonFromPixels,
   estimateHorizonFromPoints,
+  evaluateFrameQuality,
 } from "../dist/index.js";
 
 test("estimateHorizonFromPoints calculates level horizon and tilt angles correctly", () => {
@@ -177,4 +181,171 @@ test("PipelineProcessor runs full end-to-end execution loop", async () => {
   assert.equal(result.guidance.action, "HOLD");
   assert.equal(result.capture.stability, "STABILIZING");
   assert.ok(result.processingTimeMs >= 0);
+});
+
+test("detectFaceCluster localizes skin region including left-border edge and rejects grey walls", () => {
+  const width = 120;
+  const height = 80;
+  const emptyWall = new Uint8ClampedArray(width * height * 4).fill(180);
+  assert.equal(detectFaceCluster(emptyWall, width, height), null);
+
+  // Place a skin-tone region touching the left border (x = 0..24, y = 10..40)
+  const skinFrame = new Uint8ClampedArray(width * height * 4).fill(30);
+  for (let y = 10; y < 40; y++) {
+    for (let x = 0; x < 24; x++) {
+      const idx = (y * width + x) * 4;
+      skinFrame[idx] = 210; // R
+      skinFrame[idx + 1] = 155; // G
+      skinFrame[idx + 2] = 125; // B
+      skinFrame[idx + 3] = 255;
+    }
+  }
+
+  const box = detectFaceCluster(skinFrame, width, height);
+  assert.ok(box, "Expected face cluster to be detected");
+  assert.equal(box.x, 0, "Left-edge skin region should preserve x=0 boundary");
+  assert.ok(box.width > 0.1 && box.width < 0.35);
+});
+
+test("RealPerceptionAdapter mirrors x-coordinates when mirrored metadata is set and ignores asymmetric lighting tilt", async () => {
+  const width = 120;
+  const height = 80;
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  // Bright asymmetric left lighting on a uniform dark room (no horizontal edge across scanlines)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const bg = x < width / 3 ? 220 : 40;
+      data[idx] = bg;
+      data[idx + 1] = bg;
+      data[idx + 2] = bg;
+      data[idx + 3] = 255;
+    }
+  }
+
+  // Paint skin cluster on sensor-left (x = 12..36, y = 12..44)
+  for (let y = 12; y < 44; y++) {
+    for (let x = 12; x < 36; x++) {
+      const idx = (y * width + x) * 4;
+      data[idx] = 215;
+      data[idx + 1] = 160;
+      data[idx + 2] = 130;
+    }
+  }
+
+  const adapter = new RealPerceptionAdapter();
+  await adapter.initialize();
+
+  const rawFrame = {
+    frameId: "real_raw",
+    timestamp: 1000,
+    width,
+    height,
+    orientation: "LANDSCAPE",
+    source: { type: "WEBCAM" },
+    payload: { kind: "OPAQUE_REF", refId: "real_raw", metadata: { mirrored: false } },
+  };
+  const mirroredFrame = {
+    ...rawFrame,
+    frameId: "real_mirrored",
+    payload: { kind: "OPAQUE_REF", refId: "real_mirrored", metadata: { mirrored: true } },
+  };
+
+  const rawResult = await adapter.processFrame(rawFrame, { pixelData: { data, width, height } });
+  const mirroredResult = await adapter.processFrame(mirroredFrame, { pixelData: { data, width, height } });
+
+  assert.equal(rawResult.faces.length, 1);
+  assert.ok(rawResult.faces[0].boundingBox.x < 0.25, "Raw face should be on left");
+  assert.ok(mirroredResult.faces[0].boundingBox.x > 0.65, "Mirrored face should flip to right");
+  assert.equal(rawResult.metadata.backend, "chroma-cluster");
+  // Asymmetric left/right vertical split is not a horizontal horizon
+  assert.equal(rawResult.horizon?.detected, false);
+});
+
+test("evaluateFrameQuality flags LOW_LIGHT, OVEREXPOSED, BACKLIT, and BLURRY frames deterministically", () => {
+  const width = 40;
+  const height = 40;
+
+  // 1. Dark frame -> LOW_LIGHT
+  const darkData = new Uint8ClampedArray(width * height * 4).fill(15);
+  const dark = evaluateFrameQuality({ data: darkData, width, height });
+  assert.equal(dark.status, "LOW_LIGHT");
+
+  // 2. Overexposed frame -> OVEREXPOSED
+  const brightData = new Uint8ClampedArray(width * height * 4).fill(250);
+  const bright = evaluateFrameQuality({ data: brightData, width, height });
+  assert.equal(bright.status, "OVEREXPOSED");
+
+  // 3. Backlit subject: dark box inside bright background
+  const backlitData = new Uint8ClampedArray(width * height * 4).fill(235);
+  for (let y = 12; y < 28; y++) {
+    for (let x = 12; x < 28; x++) {
+      const idx = (y * width + x) * 4;
+      backlitData[idx] = 30;
+      backlitData[idx + 1] = 30;
+      backlitData[idx + 2] = 30;
+      backlitData[idx + 3] = 255;
+    }
+  }
+  const backlit = evaluateFrameQuality(
+    { data: backlitData, width, height },
+    { x: 0.3, y: 0.3, width: 0.4, height: 0.4 },
+  );
+  assert.equal(backlit.status, "BACKLIT");
+
+  // 4. Blurry frame: low-contrast mid-tone subject ROI with near-zero edges
+  const blurryData = new Uint8ClampedArray(width * height * 4).fill(128);
+  for (let y = 12; y < 28; y++) {
+    for (let x = 12; x < 28; x++) {
+      const idx = (y * width + x) * 4;
+      blurryData[idx] = 130;
+      blurryData[idx + 1] = 130;
+      blurryData[idx + 2] = 130;
+      blurryData[idx + 3] = 255;
+    }
+  }
+  const blurry = evaluateFrameQuality(
+    { data: blurryData, width, height },
+    { x: 0.3, y: 0.3, width: 0.4, height: 0.4 },
+  );
+  assert.equal(blurry.status, "BLURRY");
+});
+
+test("detectFaceClusters isolates multiple separated faces for GROUP scenes and rejects uniform warm walls", () => {
+  const width = 120;
+  const height = 80;
+
+  // 1. Two separated faces -> should isolate 2 clusters -> GROUP classification
+  const groupData = new Uint8ClampedArray(width * height * 4).fill(35);
+  const paintBox = (x0, x1, y0, y1) => {
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const idx = (y * width + x) * 4;
+        groupData[idx] = 212;
+        groupData[idx + 1] = 158;
+        groupData[idx + 2] = 126;
+        groupData[idx + 3] = 255;
+      }
+    }
+  };
+  paintBox(15, 37, 15, 42);
+  paintBox(75, 97, 15, 42);
+
+  const clusters = detectFaceClusters(groupData, width, height);
+  assert.equal(clusters.length, 2);
+  const groupScene = classifyScene({
+    faces: clusters.map((c) => ({ boundingBox: c, confidence: c.confidence })),
+  });
+  assert.equal(groupScene.type, "GROUP");
+
+  // 2. Uniform giant warm-colored wall covering >60% with zero internal contrast -> rejected
+  const wallData = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    wallData[i * 4] = 205;
+    wallData[i * 4 + 1] = 155;
+    wallData[i * 4 + 2] = 128;
+    wallData[i * 4 + 3] = 255;
+  }
+  assert.equal(detectFaceClusters(wallData, width, height).length, 0);
 });

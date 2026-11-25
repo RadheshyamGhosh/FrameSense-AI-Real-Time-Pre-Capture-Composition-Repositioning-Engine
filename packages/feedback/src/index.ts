@@ -12,6 +12,12 @@ export {
   HapticController,
   type HapticControllerOptions,
 } from "./haptics.js";
+export {
+  BrowserAudioProvider,
+  SoundController,
+  type SoundControllerOptions,
+  type SoundEffectsProvider,
+} from "./sound.js";
 export type {
   FeedbackListener,
   FeedbackSettings,

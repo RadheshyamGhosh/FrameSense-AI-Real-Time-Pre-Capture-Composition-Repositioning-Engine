@@ -4,6 +4,7 @@ export interface FeedbackSettings {
   readonly voiceEnabled: boolean;
   readonly hapticsEnabled: boolean;
   readonly visualEnabled: boolean;
+  readonly soundEnabled?: boolean;
   readonly voiceRate?: number;
   readonly voicePitch?: number;
   readonly voiceVolume?: number;

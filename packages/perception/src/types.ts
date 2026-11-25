@@ -4,6 +4,7 @@ import type {
   CompositionResult,
   GuidanceResult,
   PerceptionResult,
+  SceneType,
 } from "@framesense/core";
 
 export interface PixelDataBuffer {
@@ -17,6 +18,7 @@ export interface PerceptionProcessOptions {
   readonly detectPoses?: boolean;
   readonly detectHorizon?: boolean;
   readonly classifyScene?: boolean;
+  readonly profileOverride?: SceneType;
   readonly pixelData?: PixelDataBuffer;
 }
 

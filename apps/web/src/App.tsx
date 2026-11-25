@@ -15,25 +15,37 @@ export function App() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
 
   const {
     cameraStatus,
+    cameraError,
     activeDeviceId,
     availableDevices,
     useSynthetic,
     syntheticPreset,
+    sceneProfile,
+    aspectRatio,
+    mirrorSavedPhoto,
     composition,
     guidance,
     captureDecision,
     diagnostics,
     isAutoCapture,
     capturedPhoto,
+    capturedHistory,
+    bestShotId,
     isShutterFlashing,
     setUseSynthetic,
     setSyntheticPreset,
+    setSceneProfile,
+    setAspectRatio,
+    setMirrorSavedPhoto,
     setIsAutoCapture,
     clearCapturedPhoto,
+    openHistoryPhoto,
+    deleteHistoryPhoto,
     startCamera,
     stopCamera,
     switchCamera,
@@ -44,6 +56,11 @@ export function App() {
   const handleToggleVoice = (enabled: boolean) => {
     setVoiceEnabled(enabled);
     updateFeedbackSettings({ voiceEnabled: enabled });
+  };
+
+  const handleToggleSound = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    updateFeedbackSettings({ soundEnabled: enabled });
   };
 
   const handleToggleHaptics = (enabled: boolean) => {
@@ -100,7 +117,45 @@ export function App() {
               <div className="camera-spinner" />
               <p>Starting camera…</p>
             </div>
-          )}          {/* Shutter Flash Animation */}
+          )}
+
+          {/* Camera Error Recovery Overlay */}
+          {cameraStatus === "ERROR" && (
+            <div className="camera-error-overlay" role="alert">
+              <h2>Camera Unavailable</h2>
+              <p className="camera-error-message">
+                {cameraError ?? "Unable to access camera. Check browser permissions or device availability."}
+              </p>
+              <div className="cta-group">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => startCamera(undefined, false)}
+                >
+                  Retry Camera
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setUseSynthetic(true);
+                    startCamera(undefined, true);
+                  }}
+                >
+                  Try Simulation Mode
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={stopCamera}
+                >
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Shutter Flash Animation */}
           {isShutterFlashing && <div className="shutter-flash" />}
 
           {/* Top HUD: Score & Real-time Guidance */}
@@ -111,16 +166,23 @@ export function App() {
             videoRef={videoRef}
             composition={composition}
             showGrid={showGrid}
+            aspectRatio={aspectRatio}
           />
 
           {/* Bottom Bar: Circular Stability Ring, Shutter Button, and Controls */}
           <ShutterControls
             captureDecision={captureDecision}
             isAutoCapture={isAutoCapture}
+            capturedCount={capturedHistory.length}
             onToggleAutoCapture={() => setIsAutoCapture(!isAutoCapture)}
             onTakePhoto={takePhoto}
             onToggleSettings={() => setShowSettings(true)}
             onToggleDiagnostics={() => setShowDiagnostics(!showDiagnostics)}
+            onOpenGallery={() => {
+              if (capturedHistory[0]) {
+                openHistoryPhoto(capturedHistory[0]);
+              }
+            }}
             disabled={cameraStatus !== "STREAMING"}
           />
 
@@ -148,6 +210,10 @@ export function App() {
       {/* Captured Photo Review Modal */}
       <PhotoReviewModal
         photo={capturedPhoto}
+        history={capturedHistory}
+        bestShotId={bestShotId}
+        onSelectPhoto={openHistoryPhoto}
+        onDeletePhoto={deleteHistoryPhoto}
         onClose={clearCapturedPhoto}
       />
 
@@ -158,18 +224,27 @@ export function App() {
           activeDeviceId={activeDeviceId}
           useSynthetic={useSynthetic}
           syntheticPreset={syntheticPreset}
+          sceneProfile={sceneProfile}
+          aspectRatio={aspectRatio}
+          mirrorSavedPhoto={mirrorSavedPhoto}
           showGrid={showGrid}
           voiceEnabled={voiceEnabled}
+          soundEnabled={soundEnabled}
           hapticsEnabled={hapticsEnabled}
           onClose={() => setShowSettings(false)}
           onSelectDevice={switchCamera}
           onToggleSynthetic={(syn) => {
             setUseSynthetic(syn);
-            stopCamera();
+            setShowSettings(false);
+            startCamera(undefined, syn);
           }}
           onSelectPreset={setSyntheticPreset}
+          onSelectSceneProfile={setSceneProfile}
+          onSelectAspectRatio={setAspectRatio}
+          onToggleMirrorSavedPhoto={setMirrorSavedPhoto}
           onToggleGrid={setShowGrid}
           onToggleVoice={handleToggleVoice}
+          onToggleSound={handleToggleSound}
           onToggleHaptics={handleToggleHaptics}
         />
       )}

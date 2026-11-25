@@ -3,6 +3,7 @@ import type {
   CaptureDecision,
   CompositionResult,
   GuidanceResult,
+  SceneType,
 } from "@framesense/core";
 import type { FrameSenseConfig } from "@framesense/config";
 
@@ -59,6 +60,8 @@ export type WorkerInboundMessage =
       readonly timestamp: number;
       readonly width: number;
       readonly height: number;
+      readonly mirrored?: boolean;
+      readonly profileOverride?: SceneType;
       readonly bitmap?: ImageBitmap;
     }
   | { readonly type: "RESET" };

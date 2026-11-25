@@ -7,7 +7,14 @@ export {
   MockPerceptionAdapter,
   type MockPerceptionPreset,
 } from "./mock.js";
-export { RealPerceptionAdapter } from "./real-adapter.js";
+export { evaluateFrameQuality } from "./quality.js";
+export {
+  detectFaceCluster,
+  detectFaceClusters,
+  isHumanSkin,
+  RealPerceptionAdapter,
+  type DetectedClusterBox,
+} from "./real-adapter.js";
 export {
   PipelineProcessor,
   type PipelineProcessorOptions,

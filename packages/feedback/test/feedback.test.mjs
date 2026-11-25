@@ -5,6 +5,7 @@ import {
   DiagnosticsCollector,
   FeedbackDispatcher,
   HapticController,
+  SoundController,
   VoiceAnnouncer,
 } from "../dist/index.js";
 
@@ -187,4 +188,80 @@ test("DiagnosticsCollector computes rolling FPS, average latencies, and evaluate
   assert.equal(compliance.meetsInferenceLatency, true);
   assert.equal(compliance.meetsEndToEndLatency, true);
   assert.equal(compliance.allPass, true);
+
+  const negativeSample = {
+    ...sample,
+    inferenceLatencyMs: -5,
+    endToEndLatencyMs: -1790000000,
+  };
+  const failedCompliance = collector.checkCompliance(negativeSample, targetConfig);
+  assert.equal(failedCompliance.meetsInferenceLatency, false);
+  assert.equal(failedCompliance.meetsEndToEndLatency, false);
+  assert.equal(failedCompliance.allPass, false);
+});
+
+test("VoiceAnnouncer enforces minIntervalMs spacing while allowing URGENT interruption", () => {
+  const mockProvider = createMockSpeechProvider();
+  const announcer = new VoiceAnnouncer({
+    provider: mockProvider,
+    minIntervalMs: 2200,
+    defaultMaxRepeats: 2,
+  });
+
+  // 1st cue at t=1000 -> speaks
+  assert.equal(announcer.announce("Tilt camera up", "MEDIUM", undefined, 1000), true);
+  mockProvider.setSpeaking(false);
+
+  // Too soon at t=1800 -> suppressed by spacing cooldown
+  assert.equal(announcer.announce("Pan camera left", "MEDIUM", undefined, 1800), false);
+
+  // Urgent cue at t=2000 -> bypasses spacing cooldown
+  assert.equal(announcer.announce("Perfect! Capturing...", "URGENT", undefined, 2000), true);
+
+  // Next medium cue after 2200ms at t=4300 -> speaks
+  mockProvider.setSpeaking(false);
+  assert.equal(announcer.announce("Step back", "MEDIUM", undefined, 4300), true);
+});
+
+test("SoundController & FeedbackDispatcher trigger lock chime once per ready transition and shutter audio", () => {
+  let chimes = 0;
+  let shutters = 0;
+  const mockSound = new SoundController({
+    provider: {
+      playLockChime: () => { chimes++; },
+      playShutterClick: () => { shutters++; },
+    },
+  });
+  const mockSpeech = createMockSpeechProvider();
+  const dispatcher = new FeedbackDispatcher({
+    voiceAnnouncer: new VoiceAnnouncer({ provider: mockSpeech, minIntervalMs: 0 }),
+    soundController: mockSound,
+  });
+
+  const readyGuidance = {
+    action: "CAPTURE_READY",
+    direction: "NONE",
+    priority: "URGENT",
+    confidence: 1,
+    message: "Perfect! Capturing...",
+    timestamp: 1000,
+  };
+  const readyCapture = {
+    ready: true,
+    reason: "Stable",
+    stability: "STABLE",
+    confidence: 1,
+    timestamp: 1000,
+  };
+
+  dispatcher.dispatch(readyGuidance, readyCapture);
+  dispatcher.dispatch({ ...readyGuidance, timestamp: 1100 }, { ...readyCapture, timestamp: 1100 });
+  assert.equal(chimes, 1, "Lock chime should trigger only once per transition into ready state");
+
+  dispatcher.triggerShutterFeedback();
+  assert.equal(shutters, 1);
+
+  mockSound.setEnabled(false);
+  dispatcher.triggerShutterFeedback();
+  assert.equal(shutters, 1, "Muted sound controller should suppress shutter sound");
 });

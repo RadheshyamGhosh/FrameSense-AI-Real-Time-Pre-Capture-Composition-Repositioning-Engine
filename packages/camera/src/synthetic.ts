@@ -28,7 +28,7 @@ export class SyntheticCameraSource {
   /**
    * Generates a single deterministic synthetic camera frame.
    */
-  public createFrame(timestamp: number = Date.now()): CameraFrame {
+  public createFrame(timestamp: number = performance.now()): CameraFrame {
     this.frameCounter++;
     const frameId = `synthetic_frame_${this.frameCounter}_${timestamp}`;
 

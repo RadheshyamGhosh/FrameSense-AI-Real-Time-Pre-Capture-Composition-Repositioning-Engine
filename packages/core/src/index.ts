@@ -10,6 +10,8 @@ export type {
   Detection,
   DetectionCategory,
   FaceResult,
+  FrameQualityMetrics,
+  FrameQualityStatus,
   HorizonLine,
   HorizonResult,
   PerceptionMetadata,

@@ -53,9 +53,9 @@ export function evaluateRuleOfThirds(
   if (score < config.minimumAcceptableScore) {
     let message = "Subject focal point is off the Rule of Thirds grid.";
     if (x < 1 / 3 - tolerance) {
-      message = "Subject is framed too far to the left. Shift frame left or reposition subject.";
+      message = "Subject is framed too far left. Pan camera left.";
     } else if (x > 2 / 3 + tolerance) {
-      message = "Subject is framed too far to the right. Shift frame right or reposition subject.";
+      message = "Subject is framed too far right. Pan camera right.";
     } else if (y > 2 / 3 + tolerance) {
       message = "Subject is framed too low. Tilt camera up.";
     }

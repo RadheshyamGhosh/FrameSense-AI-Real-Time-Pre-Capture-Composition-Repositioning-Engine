@@ -4,6 +4,8 @@ import {
   FrameSampler,
   PipelineWorkerBridge,
   SyntheticCameraSource,
+  computeAspectCropRect,
+  type AspectRatioPreset,
   type CameraDeviceInfo,
   type CameraStatus,
 } from "@framesense/camera";
@@ -12,6 +14,7 @@ import type {
   CompositionResult,
   DiagnosticSample,
   GuidanceResult,
+  SceneType,
 } from "@framesense/core";
 import {
   DiagnosticsCollector,
@@ -27,11 +30,13 @@ import {
 import type { FrameSenseConfig } from "@framesense/config";
 
 export interface CapturedPhoto {
+  readonly id: string;
   readonly dataUrl: string;
   readonly timestamp: number;
-  readonly score: number;
-  readonly composition: CompositionResult;
+  readonly score: number | null;
+  readonly composition: CompositionResult | null;
   readonly profile: string;
+  readonly aspectRatio: AspectRatioPreset;
 }
 
 const DEFAULT_CONFIG: FrameSenseConfig = {
@@ -71,17 +76,27 @@ const DEFAULT_CONFIG: FrameSenseConfig = {
 
 export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>("IDLE");
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
   const [availableDevices, setAvailableDevices] = useState<CameraDeviceInfo[]>([]);
   const [useSynthetic, setUseSynthetic] = useState(false);
   const [syntheticPreset, setSyntheticPreset] = useState<MockPerceptionPreset>("PERFECT_PORTRAIT");
+  const [sceneProfile, setSceneProfile] = useState<SceneType | "AUTO">("AUTO");
+  const sceneProfileRef = useRef<SceneType | "AUTO">("AUTO");
+
+  useEffect(() => {
+    sceneProfileRef.current = sceneProfile;
+  }, [sceneProfile]);
 
   const [composition, setComposition] = useState<CompositionResult | null>(null);
   const [guidance, setGuidance] = useState<GuidanceResult | null>(null);
   const [captureDecision, setCaptureDecision] = useState<CaptureDecision | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticSample | null>(null);
   const [isAutoCapture, setIsAutoCapture] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioPreset>("VIEWPORT");
+  const [mirrorSavedPhoto, setMirrorSavedPhoto] = useState(true);
   const [capturedPhoto, setCapturedPhoto] = useState<CapturedPhoto | null>(null);
+  const [capturedHistory, setCapturedHistory] = useState<CapturedPhoto[]>([]);
   const [isShutterFlashing, setIsShutterFlashing] = useState(false);
 
   const cameraManagerRef = useRef<CameraManager | null>(null);
@@ -89,6 +104,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
   const workerBridgeRef = useRef<PipelineWorkerBridge | null>(null);
   const fallbackProcessorRef = useRef<PipelineProcessor | null>(null);
   const fallbackAdapterRef = useRef<MockPerceptionAdapter | null>(null);
+  const syntheticProcessorRef = useRef<PipelineProcessor | null>(null);
   const dispatcherRef = useRef<FeedbackDispatcher | null>(null);
   const diagnosticsRef = useRef<DiagnosticsCollector | null>(null);
   const syntheticSourceRef = useRef<SyntheticCameraSource | null>(null);
@@ -102,16 +118,20 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       targetFps: DEFAULT_CONFIG.performance.targetProcessingFps,
       maxWidth: DEFAULT_CONFIG.inference.maximumProcessingWidth,
       maxHeight: DEFAULT_CONFIG.inference.maximumProcessingHeight,
+      mirrorHorizontal: true,
     });
     samplerRef.current = sampler;
 
-    const dispatcher = new FeedbackDispatcher();
+    const dispatcher = new FeedbackDispatcher({
+      maxRepeatedAnnouncements: DEFAULT_CONFIG.guidance.maximumRepeatedAnnouncements,
+      voiceMinIntervalMs: 2200,
+    });
     dispatcherRef.current = dispatcher;
 
     const diag = new DiagnosticsCollector();
     diagnosticsRef.current = diag;
 
-    // Fallback processor initialized with RealPerceptionAdapter (not Mock)
+    // Live camera in-thread fallback initialized with RealPerceptionAdapter
     const realAdapter = new RealPerceptionAdapter();
     realAdapter.initialize().catch(() => {});
     const processor = new PipelineProcessor({
@@ -119,6 +139,14 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       config: DEFAULT_CONFIG,
     });
     fallbackProcessorRef.current = processor;
+
+    // Dedicated simulation processor backed by MockPerceptionAdapter
+    const mockAdapter = new MockPerceptionAdapter("PERFECT_PORTRAIT");
+    fallbackAdapterRef.current = mockAdapter;
+    syntheticProcessorRef.current = new PipelineProcessor({
+      adapter: mockAdapter,
+      config: DEFAULT_CONFIG,
+    });
 
     // Try Web Worker bridge if available in browser
     try {
@@ -134,8 +162,8 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
           diag.recordProcessingCycle(
             res.timestamp,
             res.processingTimeMs,
-            2,
-            Math.round(now - res.timestamp),
+            0,
+            Math.max(0, Math.round(now - res.timestamp)),
           );
 
           setComposition(res.composition);
@@ -166,7 +194,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       if (diagnosticsRef.current) {
         setDiagnostics(diagnosticsRef.current.sample());
       }
-    }, 1000);
+    }, DEFAULT_CONFIG.performance.diagnosticsSamplingIntervalMs);
 
     return () => {
       clearInterval(diagTimer);
@@ -177,58 +205,77 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     };
   }, []);
 
-  // Update mock preset when changed
+  // Update mock preset when changed and restart stability window cleanly
   useEffect(() => {
     if (fallbackAdapterRef.current) {
       fallbackAdapterRef.current.setPreset(syntheticPreset);
     }
+    syntheticProcessorRef.current?.reset();
+    setCaptureDecision(null);
   }, [syntheticPreset]);
+
+  const resetPipelineStates = useCallback(() => {
+    workerBridgeRef.current?.reset();
+    fallbackProcessorRef.current?.reset();
+    syntheticProcessorRef.current?.reset();
+    setCaptureDecision(null);
+  }, []);
 
   // Capture frame action
   const takePhoto = useCallback(() => {
     const video = videoRef.current;
-    if (!video) return;
+    const isVideoReady = Boolean(video && video.videoWidth > 0 && video.videoHeight > 0);
+    if (!isVideoReady && !useSynthetic) return;
 
     setIsShutterFlashing(true);
     setTimeout(() => setIsShutterFlashing(false), 200);
+    dispatcherRef.current?.triggerShutterFeedback();
+
+    const rawW = isVideoReady && video ? video.videoWidth : 1280;
+    const rawH = isVideoReady && video ? video.videoHeight : 720;
+    const rect = video ? video.getBoundingClientRect() : null;
+    const crop = computeAspectCropRect(rawW, rawH, aspectRatio, rect?.width, rect?.height);
 
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = crop.sw;
+    canvas.height = crop.sh;
     const ctx = canvas.getContext("2d");
     if (ctx) {
-      // Invert mirror for saved photo (render actual physical viewpoint)
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (isVideoReady && video) {
+        if (mirrorSavedPhoto) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+      } else {
+        // Render deterministic placeholder canvas for Simulation Mode captures
+        ctx.fillStyle = "#10161e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#2ed573";
+        ctx.font = "bold 34px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(`Simulation Capture: ${syntheticPreset}`, canvas.width / 2, canvas.height / 2);
+      }
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
 
-      const score = composition?.overallScore ?? 85;
-      const comp = composition ?? {
-        frameId: `manual_${Date.now()}`,
-        timestamp: Date.now(),
-        overallScore: score,
-        metrics: [
-          { type: "SUBJECT_POSITION", score, confidence: 0.9, explanation: "Manual capture" },
-          { type: "RULE_OF_THIRDS", score, confidence: 0.9, explanation: "Manual capture" },
-          { type: "HEADROOM", score, confidence: 0.9, explanation: "Manual capture" },
-          { type: "SUBJECT_SIZE", score, confidence: 0.9, explanation: "Manual capture" },
-          { type: "HORIZON_ALIGNMENT", score: 100, confidence: 0.9, explanation: "Manual capture" },
-          { type: "SYMMETRY", score: 90, confidence: 0.9, explanation: "Manual capture" },
-        ],
-        issues: [],
-        profile: "PORTRAIT" as const,
+      // Reset stability state immediately so dismissing review requires a fresh dwell window
+      resetPipelineStates();
+
+      const now = Date.now();
+      const newPhoto: CapturedPhoto = {
+        id: `cap_${now}_${Math.random().toString(36).slice(2, 6)}`,
+        dataUrl,
+        timestamp: now,
+        score: composition ? composition.overallScore : null,
+        composition: composition ?? null,
+        profile: composition?.profile ?? "UNKNOWN",
+        aspectRatio,
       };
 
-      setCapturedPhoto({
-        dataUrl,
-        timestamp: Date.now(),
-        score,
-        composition: comp,
-        profile: comp.profile,
-      });
+      setCapturedPhoto(newPhoto);
+      setCapturedHistory((prev) => [newPhoto, ...prev].slice(0, 8));
     }
-  }, [composition, videoRef]);
+  }, [aspectRatio, composition, mirrorSavedPhoto, resetPipelineStates, syntheticPreset, useSynthetic, videoRef]);
 
   // Auto-capture monitor: triggers takePhoto when ready
   useEffect(() => {
@@ -240,17 +287,35 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
   // Camera start method – takes an explicit synthetic flag to avoid stale closure
   const startCamera = async (deviceId?: string, forceUseSynthetic?: boolean) => {
     const synthetic = forceUseSynthetic ?? useSynthetic;
+    setCameraError(null);
+    resetPipelineStates();
+    diagnosticsRef.current?.reset();
 
     if (synthetic) {
-      // Start synthetic stream
+      // Start synthetic stream backed by MockPerceptionAdapter presets
+      samplerRef.current?.stopSampling();
+      cameraManagerRef.current?.stop();
       syntheticSourceRef.current?.stop();
+      if (fallbackAdapterRef.current) {
+        fallbackAdapterRef.current.setPreset(syntheticPreset);
+      }
       setCameraStatus("STREAMING");
-      const synth = new SyntheticCameraSource({ fps: 15 });
+      const synth = new SyntheticCameraSource({ fps: DEFAULT_CONFIG.performance.targetProcessingFps });
       syntheticSourceRef.current = synth;
       synth.start(async (frame) => {
         diagnosticsRef.current?.recordCameraFrame();
-        if (fallbackProcessorRef.current) {
-          const res = await fallbackProcessorRef.current.processFrame(frame);
+        if (syntheticProcessorRef.current) {
+          const override =
+            sceneProfileRef.current === "AUTO" ? undefined : sceneProfileRef.current;
+          const res = await syntheticProcessorRef.current.processFrame(frame, {
+            profileOverride: override,
+          });
+          diagnosticsRef.current?.recordProcessingCycle(
+            res.timestamp,
+            res.processingTimeMs,
+            0,
+            Math.max(0, Math.round(performance.now() - res.timestamp)),
+          );
           setComposition(res.composition);
           setGuidance(res.guidance);
           setCaptureDecision(res.capture);
@@ -267,7 +332,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
         deviceId,
         width: 1280,
         height: 720,
-        targetFps: 30,
+        targetFps: DEFAULT_CONFIG.performance.targetCameraFps,
       });
 
       const video = videoRef.current;
@@ -296,25 +361,52 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       setCameraStatus("STREAMING");
       setActiveDeviceId(cameraManagerRef.current.getActiveDeviceId());
 
+      // Re-enumerate camera labels now that permission has been granted
+      cameraManagerRef.current
+        .listDevices()
+        .then((devs) => setAvailableDevices(devs))
+        .catch(() => {});
+
       // Start frame sampler only after video is playing
       const currentVideo = videoRef.current;
       if (samplerRef.current && currentVideo) {
         samplerRef.current.startSampling(currentVideo, async (extracted) => {
           diagnosticsRef.current?.recordCameraFrame();
 
+          const override =
+            sceneProfileRef.current === "AUTO" ? undefined : sceneProfileRef.current;
+          const enrichedFrame = override
+            ? {
+                ...extracted,
+                cameraFrame: {
+                  ...extracted.cameraFrame,
+                  payload: {
+                    ...extracted.cameraFrame.payload,
+                    metadata: {
+                      ...extracted.cameraFrame.payload.metadata,
+                      profileOverride: override,
+                    },
+                  },
+                },
+              }
+            : extracted;
+
           // Dispatch to Web Worker with automatic fallback to local pipeline
           let handled = false;
           if (workerBridgeRef.current) {
-            handled = workerBridgeRef.current.dispatchFrame(extracted);
+            handled = workerBridgeRef.current.dispatchFrame(enrichedFrame);
           }
 
           if (!handled && fallbackProcessorRef.current) {
-            const res = await fallbackProcessorRef.current.processFrame(extracted.cameraFrame);
+            const res = await fallbackProcessorRef.current.processFrame(
+              enrichedFrame.cameraFrame,
+              { profileOverride: override },
+            );
             diagnosticsRef.current?.recordProcessingCycle(
               res.timestamp,
               res.processingTimeMs,
-              2,
-              Math.round(performance.now() - res.timestamp),
+              0,
+              Math.max(0, Math.round(performance.now() - res.timestamp)),
             );
             setComposition(res.composition);
             setGuidance(res.guidance);
@@ -325,6 +417,9 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       }
     } catch (err) {
       setCameraStatus("ERROR");
+      const message =
+        err instanceof Error ? err.message : "Unable to access camera device.";
+      setCameraError(message);
       console.error("Camera start error:", err);
     }
   };
@@ -334,12 +429,15 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     syntheticSourceRef.current?.stop();
     syntheticSourceRef.current = null;
     cameraManagerRef.current?.stop();
+    resetPipelineStates();
+    dispatcherRef.current?.reset();
+    diagnosticsRef.current?.reset();
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setComposition(null);
     setGuidance(null);
-    setCaptureDecision(null);
+    setCameraError(null);
     setCameraStatus("IDLE");
   };
 
@@ -348,27 +446,64 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     await startCamera(deviceId, false);
   };
 
+  const clearCapturedPhoto = useCallback(() => {
+    resetPipelineStates();
+    setCapturedPhoto(null);
+  }, [resetPipelineStates]);
+
+  const openHistoryPhoto = useCallback((photo: CapturedPhoto) => {
+    setCapturedPhoto(photo);
+  }, []);
+
+  const deleteHistoryPhoto = useCallback((id: string) => {
+    setCapturedHistory((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      setCapturedPhoto((current) => (current?.id === id ? next[0] ?? null : current));
+      return next;
+    });
+  }, []);
+
+  let bestShotId: string | null = null;
+  let bestShotScore = -1;
+  for (const item of capturedHistory) {
+    if (item.score !== null && item.score > bestShotScore) {
+      bestShotScore = item.score;
+      bestShotId = item.id;
+    }
+  }
+
   const updateFeedbackSettings = (settings: Partial<FeedbackSettings>) => {
     dispatcherRef.current?.updateSettings(settings);
   };
 
   return {
     cameraStatus,
+    cameraError,
     activeDeviceId,
     availableDevices,
     useSynthetic,
     syntheticPreset,
+    sceneProfile,
+    aspectRatio,
+    mirrorSavedPhoto,
     composition,
     guidance,
     captureDecision,
     diagnostics,
     isAutoCapture,
     capturedPhoto,
+    capturedHistory,
+    bestShotId,
     isShutterFlashing,
     setUseSynthetic,
     setSyntheticPreset,
+    setSceneProfile,
+    setAspectRatio,
+    setMirrorSavedPhoto,
     setIsAutoCapture,
-    clearCapturedPhoto: () => setCapturedPhoto(null),
+    clearCapturedPhoto,
+    openHistoryPhoto,
+    deleteHistoryPhoto,
     startCamera,
     stopCamera,
     switchCamera,

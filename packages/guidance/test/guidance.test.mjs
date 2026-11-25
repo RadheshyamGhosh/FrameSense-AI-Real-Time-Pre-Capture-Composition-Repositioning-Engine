@@ -117,16 +117,19 @@ test("transitions to STABLE and CAPTURE_READY after sustaining stability duratio
   const f1 = engine.update(createMockComposition({ timestamp: 1000, overallScore: 85 }));
   assert.equal(f1.capture.ready, false);
   assert.equal(f1.capture.stability, "STABILIZING");
+  assert.equal(f1.capture.stabilityProgress, 0);
 
-  // Frame 2 at t=1200 (200ms elapsed): still stabilizing
+  // Frame 2 at t=1200 (200ms elapsed of 400ms -> 0.5): still stabilizing
   const f2 = engine.update(createMockComposition({ timestamp: 1200, overallScore: 85 }));
   assert.equal(f2.capture.ready, false);
   assert.equal(f2.capture.stability, "STABILIZING");
+  assert.equal(f2.capture.stabilityProgress, 0.5);
 
   // Frame 3 at t=1450 (450ms elapsed >= 400ms target): CAPTURE READY!
   const f3 = engine.update(createMockComposition({ timestamp: 1450, overallScore: 85 }));
   assert.equal(f3.capture.ready, true);
   assert.equal(f3.capture.stability, "STABLE");
+  assert.equal(f3.capture.stabilityProgress, 1);
   assert.equal(f3.guidance.action, "CAPTURE_READY");
   assert.match(f3.guidance.message, /Capturing|Perfect/i);
 });
@@ -239,5 +242,48 @@ test("processGuidanceFrame executes a pure immutable state transition", () => {
   assert.equal(result.capture.stability, "STABILIZING");
   assert.equal(result.state.framesProcessed, 1);
   assert.equal(result.state.announcementCount, 1);
+});
+
+test("resolves left and right framing defects without directional inversion", () => {
+  const leftAction = resolveIssueToAction({
+    metricType: "RULE_OF_THIRDS",
+    severity: "MEDIUM",
+    message: "Subject is framed too far left. Pan camera left.",
+  });
+  assert.equal(leftAction.action, "MOVE_LEFT");
+  assert.equal(leftAction.direction, "LEFT");
+  assert.match(leftAction.message, /Pan camera left/i);
+
+  const rightAction = resolveIssueToAction({
+    metricType: "SUBJECT_POSITION",
+    severity: "LOW",
+    message: "Subject is too far right of center. Pan camera right.",
+  });
+  assert.equal(rightAction.action, "MOVE_RIGHT");
+  assert.equal(rightAction.direction, "RIGHT");
+  assert.match(rightAction.message, /Pan camera right/i);
+});
+
+test("blocks auto-capture stability when frameQuality status is BLURRY", () => {
+  const engine = createGuidanceEngine({
+    config: { ...DEFAULT_GUIDANCE_CONFIG, stabilityDurationMs: 200 },
+    acceptableScore: 70,
+  });
+
+  const blurryComp = createMockComposition({
+    timestamp: 1000,
+    overallScore: 95,
+    frameQuality: {
+      brightness: 0.5,
+      sharpness: 1.2,
+      status: "BLURRY",
+      warning: "Soft focus or motion blur — hold camera steady.",
+    },
+  });
+
+  const out = engine.update(blurryComp);
+  assert.equal(out.capture.ready, false);
+  assert.equal(out.capture.stability, "UNSTABLE");
+  assert.match(out.capture.reason, /blur/i);
 });
 
