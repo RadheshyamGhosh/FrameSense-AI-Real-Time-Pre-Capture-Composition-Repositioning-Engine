@@ -12,11 +12,14 @@ export {
 } from "./synthetic.js";
 export {
   CameraError,
+  type CameraCapabilities,
   type CameraConstraintsConfig,
   type CameraDeviceInfo,
   type CameraErrorCode,
+  type CameraRangeCapability,
   type CameraStatus,
   type ExtractedFrame,
+  type ResolutionPreset,
   type WorkerInboundMessage,
   type WorkerOutboundMessage,
 } from "./types.js";

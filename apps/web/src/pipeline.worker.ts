@@ -63,6 +63,7 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
 
         const result = await processor.processFrame(frame, {
           profileOverride: data.profileOverride,
+          template: data.template,
         });
 
         // Release the GPU bitmap memory after analysis

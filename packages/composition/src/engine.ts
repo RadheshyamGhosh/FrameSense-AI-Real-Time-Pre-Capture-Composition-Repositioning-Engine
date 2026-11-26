@@ -11,6 +11,7 @@ import { evaluateHorizon } from "./evaluators/horizon.js";
 import { evaluateRuleOfThirds } from "./evaluators/ruleOfThirds.js";
 import { evaluateSubjectSize } from "./evaluators/subjectSize.js";
 import { evaluateSymmetryAndPosition } from "./evaluators/symmetry.js";
+import { evaluateTemplateCompliance } from "./evaluators/template.js";
 import { extractPrimarySubject } from "./subject.js";
 import type { CompositionEvaluationOptions, SceneWeights } from "./types.js";
 
@@ -83,7 +84,8 @@ export function evaluateComposition(
 ): CompositionResult {
   const config = options?.config ?? DEFAULT_COMPOSITION_CONFIG;
 
-  // Determine scene profile: options override -> context.scene -> context.perception.scene -> default to PORTRAIT
+  // Determine template & scene profile
+  const activeTemplate = options?.template ?? context.template ?? "NONE";
   const profile: SceneType =
     options?.profileOverride ??
     context.scene ??
@@ -123,12 +125,22 @@ export function evaluateComposition(
   if (symmetry.issue) issues.push(symmetry.issue);
 
   // If no salient subject detected for portrait/group framing
-  if (subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP")) {
+  if (subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP" || activeTemplate !== "NONE")) {
     issues.push({
       metricType: "SUBJECT_POSITION",
       severity: "HIGH",
       message: "No person detected. Step into camera view.",
     });
+  }
+
+  // 6. Apply calibrated template compliance rules if active
+  const templateEval = evaluateTemplateCompliance(
+    activeTemplate,
+    subject,
+    context.perception.horizon,
+  );
+  if (templateEval.issues.length > 0) {
+    issues.push(...templateEval.issues);
   }
 
   // Calculate weighted overall score
@@ -144,12 +156,14 @@ export function evaluateComposition(
     }
   }
 
-  const overallScore =
-    subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP")
+  const baseScore =
+    subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP" || activeTemplate !== "NONE")
       ? 20
       : totalWeight > 0
-        ? Math.min(100, Math.max(0, Math.round(totalScoreWeight / totalWeight)))
+        ? Math.round(totalScoreWeight / totalWeight)
         : 50;
+
+  const overallScore = Math.min(100, Math.max(0, baseScore - templateEval.penaltyPoints));
 
   // Sort issues by priority (HIGH -> MEDIUM -> LOW)
   issues.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
@@ -161,6 +175,7 @@ export function evaluateComposition(
     metrics,
     issues,
     profile,
+    template: activeTemplate !== "NONE" ? activeTemplate : undefined,
     primarySubjectBounds: subject.confidence > 0 ? subject.boundingBox : undefined,
     primaryFocalPoint: subject.confidence > 0 ? subject.focalPoint : undefined,
     horizonAngleDegrees:

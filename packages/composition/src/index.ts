@@ -7,6 +7,10 @@ export { evaluateHorizon } from "./evaluators/horizon.js";
 export { evaluateRuleOfThirds } from "./evaluators/ruleOfThirds.js";
 export { evaluateSubjectSize } from "./evaluators/subjectSize.js";
 export { evaluateSymmetryAndPosition } from "./evaluators/symmetry.js";
+export {
+  evaluateTemplateCompliance,
+  type TemplateEvaluationResult,
+} from "./evaluators/template.js";
 export { extractPrimarySubject } from "./subject.js";
 export type {
   CompositionEvaluationOptions,

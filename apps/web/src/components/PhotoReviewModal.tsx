@@ -1,4 +1,5 @@
 import type { CapturedPhoto } from "../hooks/useCameraPipeline.js";
+import { CloseIcon, DownloadIcon, RefreshIcon, TrashIcon } from "./Icons.js";
 
 export interface PhotoReviewModalProps {
   readonly photo: CapturedPhoto | null;
@@ -32,12 +33,16 @@ export function PhotoReviewModal({
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-title">
       <div className="review-modal">
         <header className="review-header">
-          <h2 id="review-title">
-            Captured Photo
-            {bestShotId === photo.id && <span className="best-shot-tag">★ Best Take</span>}
-          </h2>
-          <button type="button" className="close-btn" onClick={onClose} aria-label="Close review">
-            ✕
+          <div className="review-title-group">
+            <h2 id="review-title">Captured Photo</h2>
+            <span className="review-meta-chip">{photo.profile}</span>
+            <span className="review-meta-chip">
+              {photo.aspectRatio === "VIEWPORT" ? "Full" : photo.aspectRatio}
+            </span>
+            {bestShotId === photo.id && <span className="best-shot-tag">Best Take</span>}
+          </div>
+          <button type="button" className="close-btn" onClick={onClose} aria-label="Close review" title="Close (Esc)">
+            <CloseIcon size={18} />
           </button>
         </header>
 
@@ -60,14 +65,20 @@ export function PhotoReviewModal({
               <h3>Composition Metrics</h3>
               {photo.composition ? (
                 <ul className="metrics-list">
-                  {photo.composition.metrics.map((m) => (
-                    <li key={m.type} className="metric-item">
-                      <span className="metric-name">{m.type.replace(/_/g, " ")}</span>
-                      <span className={`metric-score ${m.score >= 90 ? "high" : m.score >= 70 ? "mid" : "low"}`}>
-                        {m.score}%
-                      </span>
-                    </li>
-                  ))}
+                  {photo.composition.metrics.map((m) => {
+                    const tier = m.score >= 90 ? "high" : m.score >= 70 ? "mid" : "low";
+                    return (
+                      <li key={m.type} className="metric-item-bar">
+                        <div className="metric-item-head">
+                          <span className="metric-name">{m.type.replace(/_/g, " ")}</span>
+                          <span className={`metric-score ${tier}`}>{m.score}%</span>
+                        </div>
+                        <div className="metric-bar-track" aria-hidden="true">
+                          <div className={`metric-bar-fill ${tier}`} style={{ width: `${m.score}%` }} />
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="issue-note">Frame captured before composition analysis completed.</p>
@@ -89,10 +100,12 @@ export function PhotoReviewModal({
 
             <div className="review-actions">
               <button type="button" className="action-btn primary" onClick={handleDownload}>
-                ⬇ Download Photo ({photo.aspectRatio})
+                <DownloadIcon size={16} />
+                <span>Download JPEG ({photo.aspectRatio === "VIEWPORT" ? "Full" : photo.aspectRatio})</span>
               </button>
               <button type="button" className="action-btn secondary" onClick={onClose}>
-                🔄 Retake / Dismiss
+                <RefreshIcon size={15} />
+                <span>Retake / Resume (Esc)</span>
               </button>
             </div>
           </aside>
@@ -125,7 +138,7 @@ export function PhotoReviewModal({
                     aria-label="Delete photo"
                     title="Delete take"
                   >
-                    ✕
+                    <TrashIcon size={11} />
                   </button>
                 )}
               </div>

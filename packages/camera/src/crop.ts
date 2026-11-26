@@ -37,6 +37,7 @@ export function computeAspectCropRect(
   preset: AspectRatioPreset,
   viewportWidth?: number,
   viewportHeight?: number,
+  digitalZoom = 1,
 ): CropRect {
   if (sourceWidth <= 0 || sourceHeight <= 0) {
     return { sx: 0, sy: 0, sw: 0, sh: 0 };
@@ -47,24 +48,27 @@ export function computeAspectCropRect(
     if (viewportWidth && viewportHeight && viewportWidth > 0 && viewportHeight > 0) {
       targetRatio = viewportWidth / viewportHeight;
     } else {
-      return { sx: 0, sy: 0, sw: sourceWidth, sh: sourceHeight };
+      targetRatio = sourceWidth / sourceHeight;
     }
   }
 
   const sourceRatio = sourceWidth / sourceHeight;
-  if (Math.abs(sourceRatio - targetRatio) < 0.005) {
-    return { sx: 0, sy: 0, sw: sourceWidth, sh: sourceHeight };
+  let baseSw = sourceWidth;
+  let baseSh = sourceHeight;
+
+  if (Math.abs(sourceRatio - targetRatio) >= 0.005) {
+    if (sourceRatio > targetRatio) {
+      baseSw = Math.max(1, Math.round(sourceHeight * targetRatio));
+    } else {
+      baseSh = Math.max(1, Math.round(sourceWidth / targetRatio));
+    }
   }
 
-  if (sourceRatio > targetRatio) {
-    // Source is wider than target -> crop horizontally
-    const sw = Math.max(1, Math.round(sourceHeight * targetRatio));
-    const sx = Math.max(0, Math.round((sourceWidth - sw) / 2));
-    return { sx, sy: 0, sw, sh: sourceHeight };
-  }
-
-  // Source is taller than target -> crop vertically
-  const sh = Math.max(1, Math.round(sourceWidth / targetRatio));
+  const safeZoom = Math.max(1, digitalZoom);
+  const sw = Math.max(1, Math.round(baseSw / safeZoom));
+  const sh = Math.max(1, Math.round(baseSh / safeZoom));
+  const sx = Math.max(0, Math.round((sourceWidth - sw) / 2));
   const sy = Math.max(0, Math.round((sourceHeight - sh) / 2));
-  return { sx: 0, sy, sw: sourceWidth, sh };
+
+  return { sx, sy, sw, sh };
 }

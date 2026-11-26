@@ -263,3 +263,42 @@ test("exposes tracked subject bounds, focal point, and signed horizon angle in C
   assert.ok(result.primaryFocalPoint);
   assert.equal(result.horizonAngleDegrees, -4.2);
 });
+
+test("evaluates PASSPORT_ID biometric centering and CREATOR_TALKING_HEAD templates", () => {
+  // Off-center face in PASSPORT_ID should emit HIGH severity ID centering issue and lower score
+  const offCenterPassport = createMockContext({
+    scene: "PORTRAIT",
+    template: "PASSPORT_ID",
+    perception: {
+      faces: [{ boundingBox: { x: 0.1, y: 0.15, width: 0.28, height: 0.45 }, confidence: 0.95 }],
+      horizon: { detected: true, angleDegrees: 0.3, confidence: 0.9 },
+    },
+  });
+  const badIdRes = evaluateComposition(offCenterPassport);
+  assert.equal(badIdRes.template, "PASSPORT_ID");
+  assert.ok(badIdRes.issues.some((i) => i.severity === "HIGH" && /ID frame/i.test(i.message)));
+
+  // Centered oval-sized face with level head passes PASSPORT_ID cleanly
+  const goodPassport = createMockContext({
+    scene: "PORTRAIT",
+    template: "PASSPORT_ID",
+    perception: {
+      faces: [{ boundingBox: { x: 0.36, y: 0.14, width: 0.28, height: 0.48 }, confidence: 0.95 }],
+      horizon: { detected: true, angleDegrees: 0.4, confidence: 0.9 },
+    },
+  });
+  const goodIdRes = evaluateComposition(goodPassport);
+  assert.ok(goodIdRes.overallScore >= 85, `Expected high ID score, got ${goodIdRes.overallScore}`);
+  assert.equal(goodIdRes.issues.length, 0);
+
+  // CREATOR_TALKING_HEAD flags subject seated far too low into graphics zone
+  const lowCreator = createMockContext({
+    scene: "PORTRAIT",
+    template: "CREATOR_TALKING_HEAD",
+    perception: {
+      faces: [{ boundingBox: { x: 0.38, y: 0.55, width: 0.24, height: 0.3 }, confidence: 0.9 }],
+    },
+  });
+  const creatorRes = evaluateComposition(lowCreator);
+  assert.ok(creatorRes.issues.some((i) => /presenter zone/i.test(i.message)));
+});

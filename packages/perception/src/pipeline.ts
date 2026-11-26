@@ -50,11 +50,13 @@ export class PipelineProcessor {
       },
       perception,
       scene: perception.scene?.type,
+      template: options?.template,
     };
 
     const composition = evaluateComposition(compositionContext, {
       config: this.config.composition,
       profileOverride: options?.profileOverride ?? perception.scene?.type,
+      template: options?.template,
     });
 
     // 3. Guidance & Capture Decision

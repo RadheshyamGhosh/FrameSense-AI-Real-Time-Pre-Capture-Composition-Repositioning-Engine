@@ -1,6 +1,7 @@
 import type { AspectRatioPreset, CameraDeviceInfo } from "@framesense/camera";
-import type { SceneType } from "@framesense/core";
+import type { FramingTemplate, SceneType } from "@framesense/core";
 import type { MockPerceptionPreset } from "@framesense/perception";
+import { CloseIcon } from "./Icons.js";
 
 export type SceneModeSelection = SceneType | "AUTO";
 
@@ -11,6 +12,7 @@ export interface SettingsModalProps {
   readonly syntheticPreset: MockPerceptionPreset;
   readonly sceneProfile: SceneModeSelection;
   readonly aspectRatio: AspectRatioPreset;
+  readonly template: FramingTemplate;
   readonly mirrorSavedPhoto: boolean;
   readonly showGrid: boolean;
   readonly voiceEnabled: boolean;
@@ -22,12 +24,20 @@ export interface SettingsModalProps {
   readonly onSelectPreset: (preset: MockPerceptionPreset) => void;
   readonly onSelectSceneProfile: (profile: SceneModeSelection) => void;
   readonly onSelectAspectRatio: (ratio: AspectRatioPreset) => void;
+  readonly onSelectTemplate: (template: FramingTemplate) => void;
   readonly onToggleMirrorSavedPhoto: (mirror: boolean) => void;
   readonly onToggleGrid: (show: boolean) => void;
   readonly onToggleVoice: (enabled: boolean) => void;
   readonly onToggleSound: (enabled: boolean) => void;
   readonly onToggleHaptics: (enabled: boolean) => void;
 }
+
+const TEMPLATES: { value: FramingTemplate; label: string }[] = [
+  { value: "NONE", label: "Standard Viewfinder" },
+  { value: "PASSPORT_ID", label: "Passport / Biometric ID Oval" },
+  { value: "HEADSHOT_PRO", label: "Pro Studio / LinkedIn Headshot" },
+  { value: "CREATOR_TALKING_HEAD", label: "Creator Talking-Head Desk Zone" },
+];
 
 const ASPECT_RATIOS: { value: AspectRatioPreset; label: string }[] = [
   { value: "VIEWPORT", label: "Match Screen (Full Viewfinder)" },
@@ -65,6 +75,7 @@ export function SettingsModal({
   syntheticPreset,
   sceneProfile,
   aspectRatio,
+  template,
   mirrorSavedPhoto,
   showGrid,
   voiceEnabled,
@@ -76,6 +87,7 @@ export function SettingsModal({
   onSelectPreset,
   onSelectSceneProfile,
   onSelectAspectRatio,
+  onSelectTemplate,
   onToggleMirrorSavedPhoto,
   onToggleGrid,
   onToggleVoice,
@@ -86,9 +98,9 @@ export function SettingsModal({
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div className="settings-modal">
         <header className="review-header">
-          <h2 id="settings-title">Camera & Viewfinder Settings</h2>
-          <button type="button" className="close-btn" onClick={onClose} aria-label="Close settings">
-            ✕
+          <h2 id="settings-title">Camera & Studio Settings</h2>
+          <button type="button" className="close-btn" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+            <CloseIcon size={18} />
           </button>
         </header>
 
@@ -178,6 +190,22 @@ export function SettingsModal({
                 ))}
               </select>
             </div>
+
+            <div className="select-row" style={{ marginTop: "0.75rem" }}>
+              <label htmlFor="template-select">Framing Template:</label>
+              <select
+                id="template-select"
+                value={template}
+                onChange={(e) => onSelectTemplate(e.target.value as FramingTemplate)}
+                className="device-dropdown"
+              >
+                {TEMPLATES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </section>
 
           {/* Feedback & Overlay Preferences */}
@@ -227,6 +255,19 @@ export function SettingsModal({
                 />
                 Haptic Vibration Feedback
               </label>
+            </div>
+          </section>
+
+          <section className="setting-section">
+            <h3>Keyboard Shortcuts</h3>
+            <div className="shortcut-grid">
+              <span><kbd>Space</kbd> Capture</span>
+              <span><kbd>A</kbd> Auto-Shutter</span>
+              <span><kbd>G</kbd> Grid</span>
+              <span><kbd>M</kbd> Voice Mute</span>
+              <span><kbd>I</kbd> Scorecard</span>
+              <span><kbd>T</kbd> Template</span>
+              <span><kbd>Esc</kbd> Dismiss</span>
             </div>
           </section>
         </div>

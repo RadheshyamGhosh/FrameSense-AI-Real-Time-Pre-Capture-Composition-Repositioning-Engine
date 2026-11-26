@@ -1,4 +1,5 @@
 import type { DiagnosticSample } from "@framesense/core";
+import { CloseIcon } from "./Icons.js";
 
 export interface DiagnosticsOverlayProps {
   readonly sample: DiagnosticSample | null;
@@ -13,7 +14,7 @@ export function DiagnosticsOverlay({ sample, onClose }: DiagnosticsOverlayProps)
       <header className="diag-header">
         <h4>Telemetry Diagnostics</h4>
         <button type="button" className="close-mini-btn" onClick={onClose} aria-label="Close telemetry">
-          ✕
+          <CloseIcon size={14} />
         </button>
       </header>
 

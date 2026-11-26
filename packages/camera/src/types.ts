@@ -2,10 +2,28 @@ import type {
   CameraFrame,
   CaptureDecision,
   CompositionResult,
+  FramingTemplate,
   GuidanceResult,
   SceneType,
 } from "@framesense/core";
 import type { FrameSenseConfig } from "@framesense/config";
+
+export type ResolutionPreset = "720p" | "1080p" | "4K";
+
+export interface CameraRangeCapability {
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+  readonly current: number;
+}
+
+export interface CameraCapabilities {
+  readonly zoom: CameraRangeCapability | null;
+  readonly exposureCompensation: CameraRangeCapability | null;
+  readonly supportedResolutions: readonly ResolutionPreset[];
+  readonly activeWidth?: number;
+  readonly activeHeight?: number;
+}
 
 export type CameraStatus =
   | "IDLE"
@@ -62,6 +80,7 @@ export type WorkerInboundMessage =
       readonly height: number;
       readonly mirrored?: boolean;
       readonly profileOverride?: SceneType;
+      readonly template?: FramingTemplate;
       readonly bitmap?: ImageBitmap;
     }
   | { readonly type: "RESET" };

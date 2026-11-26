@@ -28,6 +28,7 @@ export type {
   CompositionMetricType,
   CompositionResult,
   FrameDimensions,
+  FramingTemplate,
 } from "./composition";
 export type {
   GuidanceAction,

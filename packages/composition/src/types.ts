@@ -2,6 +2,7 @@ import type {
   BoundingBox,
   CompositionIssue,
   CompositionMetric,
+  FramingTemplate,
   Point2D,
   SceneType,
 } from "@framesense/core";
@@ -23,6 +24,7 @@ export interface PrimarySubject {
 export interface CompositionEvaluationOptions {
   readonly config?: CompositionConfig;
   readonly profileOverride?: SceneType;
+  readonly template?: FramingTemplate;
 }
 
 export type SceneWeights = Record<string, number>;

@@ -1,10 +1,31 @@
 import {
   CameraError,
+  type CameraCapabilities,
   type CameraConstraintsConfig,
   type CameraDeviceInfo,
   type CameraErrorCode,
+  type CameraRangeCapability,
   type CameraStatus,
+  type ResolutionPreset,
 } from "./types.js";
+
+interface ExtendedTrackCapabilities extends MediaTrackCapabilities {
+  zoom?: { min?: number; max?: number; step?: number };
+  exposureCompensation?: { min?: number; max?: number; step?: number };
+  width?: { max?: number; min?: number };
+  height?: { max?: number; min?: number };
+}
+
+interface ExtendedTrackSettings extends MediaTrackSettings {
+  zoom?: number;
+  exposureCompensation?: number;
+}
+
+const RESOLUTION_DIMENSIONS: Record<ResolutionPreset, { width: number; height: number }> = {
+  "720p": { width: 1280, height: 720 },
+  "1080p": { width: 1920, height: 1080 },
+  "4K": { width: 3840, height: 2160 },
+};
 
 export interface MediaDevicesProvider {
   getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream>;
@@ -131,6 +152,108 @@ export class CameraManager {
     }
     this.currentDeviceId = null;
     this.status = "IDLE";
+  }
+
+  /**
+   * Probes hardware capabilities (zoom, EV, max resolution) of the active video track.
+   */
+  public getCapabilities(): CameraCapabilities {
+    const track = this.currentStream?.getVideoTracks()[0];
+    if (!track) {
+      return {
+        zoom: null,
+        exposureCompensation: null,
+        supportedResolutions: ["720p", "1080p"],
+      };
+    }
+
+    const caps = (
+      typeof track.getCapabilities === "function" ? track.getCapabilities() : {}
+    ) as ExtendedTrackCapabilities;
+    const settings = (
+      typeof track.getSettings === "function" ? track.getSettings() : {}
+    ) as ExtendedTrackSettings;
+
+    const toRange = (
+      range: { min?: number; max?: number; step?: number } | undefined,
+      currentVal: number | undefined,
+      fallbackCurrent: number,
+    ): CameraRangeCapability | null => {
+      if (
+        !range ||
+        typeof range.min !== "number" ||
+        typeof range.max !== "number" ||
+        range.max <= range.min
+      ) {
+        return null;
+      }
+      return {
+        min: range.min,
+        max: range.max,
+        step: typeof range.step === "number" && range.step > 0 ? range.step : 0.1,
+        current: typeof currentVal === "number" ? currentVal : fallbackCurrent,
+      };
+    };
+
+    const maxW = caps.width?.max ?? settings.width ?? 1920;
+    const supportedResolutions: ResolutionPreset[] = ["720p"];
+    if (maxW >= 1920) supportedResolutions.push("1080p");
+    if (maxW >= 3840) supportedResolutions.push("4K");
+
+    return {
+      zoom: toRange(caps.zoom, settings.zoom, 1),
+      exposureCompensation: toRange(caps.exposureCompensation, settings.exposureCompensation, 0),
+      supportedResolutions,
+      activeWidth: settings.width,
+      activeHeight: settings.height,
+    };
+  }
+
+  /**
+   * Applies hardware zoom constraint if supported by active track.
+   */
+  public async applyZoom(zoom: number): Promise<boolean> {
+    const track = this.currentStream?.getVideoTracks()[0];
+    if (!track || typeof track.applyConstraints !== "function") return false;
+
+    try {
+      await track.applyConstraints({
+        advanced: [{ zoom } as MediaTrackConstraintSet],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Applies hardware exposure compensation (EV) if supported by active track.
+   */
+  public async applyExposureCompensation(ev: number): Promise<boolean> {
+    const track = this.currentStream?.getVideoTracks()[0];
+    if (!track || typeof track.applyConstraints !== "function") return false;
+
+    try {
+      await track.applyConstraints({
+        advanced: [{ exposureCompensation: ev } as MediaTrackConstraintSet],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Restarts active camera device stream with a target resolution preset.
+   */
+  public async setResolution(preset: ResolutionPreset): Promise<MediaStream> {
+    const dims = RESOLUTION_DIMENSIONS[preset];
+    return this.start({
+      deviceId: this.currentDeviceId ?? undefined,
+      width: dims.width,
+      height: dims.height,
+      targetFps: 30,
+    });
   }
 
   private normalizeError(error: unknown): CameraError {

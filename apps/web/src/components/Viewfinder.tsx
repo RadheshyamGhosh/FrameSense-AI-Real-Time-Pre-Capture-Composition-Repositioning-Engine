@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import { computeAspectCropRect, type AspectRatioPreset } from "@framesense/camera";
-import type { CompositionResult } from "@framesense/core";
+import type { CompositionResult, FramingTemplate } from "@framesense/core";
 
 export interface ViewfinderProps {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>;
   readonly composition: CompositionResult | null;
   readonly showGrid?: boolean;
   readonly aspectRatio?: AspectRatioPreset;
+  readonly template?: FramingTemplate;
+  readonly digitalZoom?: number;
 }
 
 export function Viewfinder({
@@ -14,6 +16,8 @@ export function Viewfinder({
   composition,
   showGrid = true,
   aspectRatio = "VIEWPORT",
+  template = "NONE",
+  digitalZoom = 1,
 }: ViewfinderProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -114,6 +118,78 @@ export function Viewfinder({
       ctx.lineTo(gx + gw * 0.75, gy + gh * 0.08);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // 2b. Render Calibrated Studio / Biometric Template Guides
+      const templateLocked = (composition?.overallScore ?? 0) >= 85;
+      const templateStroke = templateLocked
+        ? "rgba(46, 213, 115, 0.85)"
+        : "rgba(255, 171, 0, 0.85)";
+
+      if (template === "PASSPORT_ID") {
+        const cx = gx + gw * 0.5;
+        const cy = gy + gh * 0.44;
+        const rx = Math.min(gw, gh) * 0.23;
+        const ry = gh * 0.31;
+
+        ctx.save();
+        ctx.strokeStyle = templateStroke;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Top-of-head and chin alignment ticks
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(cx - 24, cy - ry);
+        ctx.lineTo(cx + 24, cy - ry);
+        ctx.moveTo(cx - 24, cy + ry);
+        ctx.lineTo(cx + 24, cy + ry);
+        ctx.stroke();
+
+        ctx.font = "700 11px sans-serif";
+        ctx.fillStyle = templateStroke;
+        ctx.textAlign = "center";
+        ctx.fillText("BIOMETRIC ID OVAL", cx, gy + gh * 0.88);
+        ctx.restore();
+      } else if (template === "HEADSHOT_PRO") {
+        const cx = gx + gw * 0.5;
+        const cy = gy + gh * 0.38;
+        const rx = Math.min(gw, gh) * 0.2;
+        const ry = gh * 0.22;
+
+        ctx.save();
+        ctx.strokeStyle = templateStroke;
+        ctx.lineWidth = 1.75;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Shoulder baseline & eye line
+        ctx.beginPath();
+        ctx.moveTo(gx + gw * 0.26, gy + gh * 0.72);
+        ctx.lineTo(gx + gw * 0.74, gy + gh * 0.72);
+        ctx.stroke();
+
+        ctx.font = "700 11px sans-serif";
+        ctx.fillStyle = templateStroke;
+        ctx.textAlign = "center";
+        ctx.fillText("STUDIO HEADSHOT GUIDE", cx, gy + gh * 0.88);
+        ctx.restore();
+      } else if (template === "CREATOR_TALKING_HEAD") {
+        ctx.save();
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(gx + gw * 0.08, gy + gh * 0.76, gw * 0.84, gh * 0.16);
+        ctx.font = "700 10px sans-serif";
+        ctx.fillStyle = "rgba(56, 189, 248, 0.8)";
+        ctx.textAlign = "center";
+        ctx.fillText("LOWER-THIRD GRAPHICS SAFE ZONE", gx + gw * 0.5, gy + gh * 0.855);
+        ctx.restore();
+      }
 
       // 3. Draw Signed Real-Time Horizon Level Bar
       const horizonMetric = composition?.metrics.find((m) => m.type === "HORIZON_ALIGNMENT");
@@ -248,7 +324,7 @@ export function Viewfinder({
 
     animId = requestAnimationFrame(renderOverlay);
     return () => cancelAnimationFrame(animId);
-  }, [aspectRatio, composition, showGrid, videoRef]);
+  }, [aspectRatio, composition, showGrid, template, videoRef]);
 
   return (
     <div className="viewfinder-container">
@@ -258,6 +334,9 @@ export function Viewfinder({
         muted
         autoPlay
         className="viewfinder-video"
+        style={{
+          transform: digitalZoom > 1 ? `scaleX(-1) scale(${digitalZoom})` : "scaleX(-1)",
+        }}
       />
       <canvas ref={canvasRef} className="viewfinder-overlay" />
     </div>

@@ -1,18 +1,43 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AspectRatioPreset } from "@framesense/camera";
+import type { FramingTemplate } from "@framesense/core";
 import "./App.css";
+import { CameraControlsPopover } from "./components/CameraControlsPopover.js";
 import { DiagnosticsOverlay } from "./components/DiagnosticsOverlay.js";
 import { GuidanceHUD } from "./components/GuidanceHUD.js";
+import { CameraIcon, SimIcon } from "./components/Icons.js";
 import { PhotoReviewModal } from "./components/PhotoReviewModal.js";
-import { SettingsModal } from "./components/SettingsModal.js";
+import { SettingsModal, type SceneModeSelection } from "./components/SettingsModal.js";
 import { ShutterControls } from "./components/ShutterControls.js";
+import { StudioScorecard } from "./components/StudioScorecard.js";
 import { Viewfinder } from "./components/Viewfinder.js";
 import { useCameraPipeline } from "./hooks/useCameraPipeline.js";
+
+const SCENE_CYCLE_ORDER: SceneModeSelection[] = [
+  "AUTO",
+  "PORTRAIT",
+  "GROUP",
+  "LANDSCAPE",
+  "ARCHITECTURE",
+  "FOOD",
+];
+
+const ASPECT_CYCLE_ORDER: AspectRatioPreset[] = ["VIEWPORT", "16:9", "4:3", "1:1", "9:16"];
+
+const TEMPLATE_CYCLE_ORDER: FramingTemplate[] = [
+  "NONE",
+  "PASSPORT_ID",
+  "HEADSHOT_PRO",
+  "CREATOR_TALKING_HEAD",
+];
 
 export function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showScorecard, setShowScorecard] = useState(false);
+  const [showCameraControls, setShowCameraControls] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -26,8 +51,13 @@ export function App() {
     useSynthetic,
     syntheticPreset,
     sceneProfile,
+    template,
     aspectRatio,
     mirrorSavedPhoto,
+    resolutionPreset,
+    cameraCapabilities,
+    zoomLevel,
+    exposureEv,
     composition,
     guidance,
     captureDecision,
@@ -40,9 +70,13 @@ export function App() {
     setUseSynthetic,
     setSyntheticPreset,
     setSceneProfile,
+    setTemplate,
     setAspectRatio,
     setMirrorSavedPhoto,
     setIsAutoCapture,
+    changeZoom,
+    changeExposure,
+    changeResolution,
     clearCapturedPhoto,
     openHistoryPhoto,
     deleteHistoryPhoto,
@@ -53,10 +87,13 @@ export function App() {
     updateFeedbackSettings,
   } = useCameraPipeline(videoRef);
 
-  const handleToggleVoice = (enabled: boolean) => {
-    setVoiceEnabled(enabled);
-    updateFeedbackSettings({ voiceEnabled: enabled });
-  };
+  const handleToggleVoice = useCallback(
+    (enabled: boolean) => {
+      setVoiceEnabled(enabled);
+      updateFeedbackSettings({ voiceEnabled: enabled });
+    },
+    [updateFeedbackSettings],
+  );
 
   const handleToggleSound = (enabled: boolean) => {
     setSoundEnabled(enabled);
@@ -68,58 +105,185 @@ export function App() {
     updateFeedbackSettings({ hapticsEnabled: enabled });
   };
 
+  const cycleSceneProfile = () => {
+    const idx = SCENE_CYCLE_ORDER.indexOf(sceneProfile);
+    const next = SCENE_CYCLE_ORDER[(idx + 1) % SCENE_CYCLE_ORDER.length] ?? "AUTO";
+    setSceneProfile(next);
+  };
+
+  const cycleAspectRatio = () => {
+    const idx = ASPECT_CYCLE_ORDER.indexOf(aspectRatio);
+    const next = ASPECT_CYCLE_ORDER[(idx + 1) % ASPECT_CYCLE_ORDER.length] ?? "VIEWPORT";
+    setAspectRatio(next);
+  };
+
+  const cycleTemplate = useCallback(() => {
+    const idx = TEMPLATE_CYCLE_ORDER.indexOf(template);
+    const next = TEMPLATE_CYCLE_ORDER[(idx + 1) % TEMPLATE_CYCLE_ORDER.length] ?? "NONE";
+    setTemplate(next);
+  }, [setTemplate, template]);
+
+  // Laptop keyboard shortcuts during camera session & modal dismissal
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "SELECT" ||
+          target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (capturedPhoto) {
+          clearCapturedPhoto();
+          return;
+        }
+        if (showSettings) {
+          setShowSettings(false);
+          return;
+        }
+        if (showCameraControls) {
+          setShowCameraControls(false);
+          return;
+        }
+        if (showDiagnostics) {
+          setShowDiagnostics(false);
+          return;
+        }
+        if (showScorecard) {
+          setShowScorecard(false);
+        }
+        return;
+      }
+
+      if (cameraStatus !== "STREAMING" || showSettings || capturedPhoto) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        takePhoto();
+      } else if (e.key.toLowerCase() === "a") {
+        setIsAutoCapture((prev) => !prev);
+      } else if (e.key.toLowerCase() === "g") {
+        setShowGrid((prev) => !prev);
+      } else if (e.key.toLowerCase() === "m") {
+        handleToggleVoice(!voiceEnabled);
+      } else if (e.key.toLowerCase() === "i") {
+        setShowScorecard((prev) => !prev);
+      } else if (e.key.toLowerCase() === "t") {
+        cycleTemplate();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    cameraStatus,
+    capturedPhoto,
+    clearCapturedPhoto,
+    cycleTemplate,
+    handleToggleVoice,
+    setIsAutoCapture,
+    showCameraControls,
+    showDiagnostics,
+    showScorecard,
+    showSettings,
+    takePhoto,
+    voiceEnabled,
+  ]);
+
   return (
     <main className="camera-app-root">
-      {/* Landing Screen when Camera is Idle */}
+      {/* Studio Landing Onboarding Screen */}
       {cameraStatus === "IDLE" && (
         <section className="landing-screen" aria-labelledby="app-title">
-          <div className="landing-content">
-            <span className="brand-tag">FrameSense AI</span>
-            <h1 id="app-title">Pre-Capture Photo Composition Engine</h1>
-            <p className="hero-description">
-              Real-time computer vision guidance running 100% on-device. Adjust framing, headroom,
-              and horizon alignment with intelligent auto-shutter capture.
-            </p>
+          <div className="landing-grid">
+            <div className="landing-content">
+              <div className="landing-badges">
+                <span className="brand-tag">FrameSense AI</span>
+                <span className="privacy-pill">100% On-Device Web Worker</span>
+              </div>
 
-            <div className="cta-group">
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  setUseSynthetic(false);
-                  startCamera(undefined, false);
-                }}
-              >
-                📷 Start Live Camera
-              </button>
+              <h1 id="app-title">Pre-Capture Composition &amp; Framing Studio</h1>
+              <p className="hero-description">
+                Real-time computer vision guidance before the shutter fires. Align portraits,
+                horizon tilt, headroom, exposure, and aspect crops with hands-free auto-shutter.
+              </p>
 
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setUseSynthetic(true);
-                  startCamera(undefined, true);
-                }}
-              >
-                🧪 Try Simulation Mode
-              </button>
+              <div className="cta-group">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setUseSynthetic(false);
+                    startCamera(undefined, false);
+                  }}
+                >
+                  <CameraIcon size={18} />
+                  <span>Start Live Camera</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setUseSynthetic(true);
+                    startCamera(undefined, true);
+                  }}
+                >
+                  <SimIcon size={18} />
+                  <span>Try Simulation Mode</span>
+                </button>
+              </div>
             </div>
+
+            {/* Interactive Visual Viewfinder Preview Card */}
+            <aside className="landing-preview-card" aria-label="System overview">
+              <div className="preview-reticle-box" aria-hidden="true">
+                <span className="preview-grid-v1" />
+                <span className="preview-grid-v2" />
+                <span className="preview-grid-h1" />
+                <span className="preview-grid-h2" />
+                <span className="preview-power-dot" />
+                <div className="preview-subject-box">
+                  <span className="preview-eye-dot" />
+                </div>
+                <span className="preview-score-chip">96 Optimal</span>
+              </div>
+
+              <ol className="workflow-steps">
+                <li>
+                  <strong>01 Align</strong>
+                  <span>Follow directional voice &amp; power-point guides</span>
+                </li>
+                <li>
+                  <strong>02 Stabilize</strong>
+                  <span>Hold 750 ms with crisp lighting &amp; focus gate</span>
+                </li>
+                <li>
+                  <strong>03 Capture</strong>
+                  <span>Auto-shutter saves matched crop &amp; best-take pick</span>
+                </li>
+              </ol>
+            </aside>
           </div>
         </section>
       )}
 
-      {/* Live Viewfinder Screen */}
+      {/* Live Viewfinder Workspace */}
       {cameraStatus !== "IDLE" && (
         <div className="viewfinder-stage">
-          {/* Camera initializing spinner */}
           {cameraStatus === "INITIALIZING" && (
             <div className="camera-initializing-overlay">
               <div className="camera-spinner" />
-              <p>Starting camera…</p>
+              <p>Starting camera stream…</p>
             </div>
           )}
 
-          {/* Camera Error Recovery Overlay */}
           {cameraStatus === "ERROR" && (
             <div className="camera-error-overlay" role="alert">
               <h2>Camera Unavailable</h2>
@@ -155,26 +319,68 @@ export function App() {
             </div>
           )}
 
-          {/* Shutter Flash Animation */}
           {isShutterFlashing && <div className="shutter-flash" />}
 
-          {/* Top HUD: Score & Real-time Guidance */}
-          <GuidanceHUD guidance={guidance} composition={composition} />
+          <GuidanceHUD
+            guidance={guidance}
+            composition={composition}
+            sceneProfile={sceneProfile}
+            aspectRatio={aspectRatio}
+            template={template}
+            useSynthetic={useSynthetic}
+            onCycleSceneProfile={cycleSceneProfile}
+            onCycleAspectRatio={cycleAspectRatio}
+            onCycleTemplate={cycleTemplate}
+            onExitCamera={stopCamera}
+          />
 
-          {/* Central Camera Video Feed & AR Overlay Canvas */}
           <Viewfinder
             videoRef={videoRef}
             composition={composition}
             showGrid={showGrid}
             aspectRatio={aspectRatio}
+            template={template}
+            digitalZoom={cameraCapabilities?.zoom ? 1 : zoomLevel}
           />
 
-          {/* Bottom Bar: Circular Stability Ring, Shutter Button, and Controls */}
+          {showScorecard && (
+            <StudioScorecard
+              composition={composition}
+              onClose={() => setShowScorecard(false)}
+            />
+          )}
+
+          {showCameraControls && (
+            <CameraControlsPopover
+              capabilities={cameraCapabilities}
+              resolution={resolutionPreset}
+              zoomLevel={zoomLevel}
+              exposureEv={exposureEv}
+              useSynthetic={useSynthetic}
+              onChangeZoom={changeZoom}
+              onChangeExposure={changeExposure}
+              onChangeResolution={changeResolution}
+              onClose={() => setShowCameraControls(false)}
+            />
+          )}
+
           <ShutterControls
             captureDecision={captureDecision}
             isAutoCapture={isAutoCapture}
+            showGrid={showGrid}
+            voiceEnabled={voiceEnabled}
+            showScorecard={showScorecard}
+            showCameraControls={showCameraControls}
+            showDiagnostics={showDiagnostics}
+            useSynthetic={useSynthetic}
+            syntheticPreset={syntheticPreset}
             capturedCount={capturedHistory.length}
+            latestThumbUrl={capturedHistory[0]?.dataUrl ?? null}
             onToggleAutoCapture={() => setIsAutoCapture(!isAutoCapture)}
+            onToggleGrid={() => setShowGrid(!showGrid)}
+            onToggleVoice={() => handleToggleVoice(!voiceEnabled)}
+            onToggleScorecard={() => setShowScorecard(!showScorecard)}
+            onToggleCameraControls={() => setShowCameraControls(!showCameraControls)}
             onTakePhoto={takePhoto}
             onToggleSettings={() => setShowSettings(true)}
             onToggleDiagnostics={() => setShowDiagnostics(!showDiagnostics)}
@@ -183,23 +389,12 @@ export function App() {
                 openHistoryPhoto(capturedHistory[0]);
               }
             }}
+            onSelectPreset={setSyntheticPreset}
             disabled={cameraStatus !== "STREAMING"}
           />
-
-          {/* Stop / Exit Camera Button */}
-          <button
-            type="button"
-            className="exit-camera-btn"
-            onClick={stopCamera}
-            title="Stop Camera"
-            aria-label="Exit camera"
-          >
-            ✕ Exit
-          </button>
         </div>
       )}
 
-      {/* Real-time Telemetry Diagnostics Drawer */}
       {showDiagnostics && (
         <DiagnosticsOverlay
           sample={diagnostics}
@@ -207,7 +402,6 @@ export function App() {
         />
       )}
 
-      {/* Captured Photo Review Modal */}
       <PhotoReviewModal
         photo={capturedPhoto}
         history={capturedHistory}
@@ -217,7 +411,6 @@ export function App() {
         onClose={clearCapturedPhoto}
       />
 
-      {/* Settings & Device Picker Modal */}
       {showSettings && (
         <SettingsModal
           availableDevices={availableDevices}
@@ -226,6 +419,7 @@ export function App() {
           syntheticPreset={syntheticPreset}
           sceneProfile={sceneProfile}
           aspectRatio={aspectRatio}
+          template={template}
           mirrorSavedPhoto={mirrorSavedPhoto}
           showGrid={showGrid}
           voiceEnabled={voiceEnabled}
@@ -241,6 +435,7 @@ export function App() {
           onSelectPreset={setSyntheticPreset}
           onSelectSceneProfile={setSceneProfile}
           onSelectAspectRatio={setAspectRatio}
+          onSelectTemplate={setTemplate}
           onToggleMirrorSavedPhoto={setMirrorSavedPhoto}
           onToggleGrid={setShowGrid}
           onToggleVoice={handleToggleVoice}

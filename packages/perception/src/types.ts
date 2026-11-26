@@ -2,6 +2,7 @@ import type {
   CameraFrame,
   CaptureDecision,
   CompositionResult,
+  FramingTemplate,
   GuidanceResult,
   PerceptionResult,
   SceneType,
@@ -19,6 +20,7 @@ export interface PerceptionProcessOptions {
   readonly detectHorizon?: boolean;
   readonly classifyScene?: boolean;
   readonly profileOverride?: SceneType;
+  readonly template?: FramingTemplate;
   readonly pixelData?: PixelDataBuffer;
 }
 

@@ -1,6 +1,12 @@
 import type { BoundingBox, Point2D } from "../geometry";
 import type { FrameQualityMetrics, PerceptionResult, SceneType } from "../perception";
 
+export type FramingTemplate =
+  | "NONE"
+  | "PASSPORT_ID"
+  | "HEADSHOT_PRO"
+  | "CREATOR_TALKING_HEAD";
+
 export interface FrameDimensions {
   readonly width: number;
   readonly height: number;
@@ -12,6 +18,7 @@ export interface CompositionContext {
   readonly frame: FrameDimensions;
   readonly perception: PerceptionResult;
   readonly scene?: SceneType;
+  readonly template?: FramingTemplate;
 }
 
 export type CompositionMetricType =
@@ -44,6 +51,8 @@ export interface CompositionResult {
   readonly metrics: readonly CompositionMetric[];
   readonly issues: readonly CompositionIssue[];
   readonly profile: SceneType;
+  /** Active studio/biometric template when selected. */
+  readonly template?: FramingTemplate;
   /** Primary tracked subject box in normalized 0..1 coordinates (when detected). */
   readonly primarySubjectBounds?: BoundingBox;
   /** Visual focal point (e.g. eye-line) in normalized 0..1 coordinates (when detected). */

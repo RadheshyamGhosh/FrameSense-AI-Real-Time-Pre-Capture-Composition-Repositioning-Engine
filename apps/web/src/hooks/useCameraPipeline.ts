@@ -6,13 +6,16 @@ import {
   SyntheticCameraSource,
   computeAspectCropRect,
   type AspectRatioPreset,
+  type CameraCapabilities,
   type CameraDeviceInfo,
   type CameraStatus,
+  type ResolutionPreset,
 } from "@framesense/camera";
 import type {
   CaptureDecision,
   CompositionResult,
   DiagnosticSample,
+  FramingTemplate,
   GuidanceResult,
   SceneType,
 } from "@framesense/core";
@@ -83,18 +86,37 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
   const [syntheticPreset, setSyntheticPreset] = useState<MockPerceptionPreset>("PERFECT_PORTRAIT");
   const [sceneProfile, setSceneProfile] = useState<SceneType | "AUTO">("AUTO");
   const sceneProfileRef = useRef<SceneType | "AUTO">("AUTO");
+  const [template, setTemplateState] = useState<FramingTemplate>("NONE");
+  const templateRef = useRef<FramingTemplate>("NONE");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioPreset>("VIEWPORT");
+  const [mirrorSavedPhoto, setMirrorSavedPhoto] = useState(true);
+  const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>("720p");
+  const [cameraCapabilities, setCameraCapabilities] = useState<CameraCapabilities | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [exposureEv, setExposureEv] = useState(0);
 
   useEffect(() => {
     sceneProfileRef.current = sceneProfile;
   }, [sceneProfile]);
+
+  useEffect(() => {
+    templateRef.current = template;
+  }, [template]);
+
+  const setTemplate = useCallback((nextTemplate: FramingTemplate) => {
+    setTemplateState(nextTemplate);
+    if (nextTemplate === "PASSPORT_ID") {
+      setAspectRatio("1:1");
+    } else if (nextTemplate === "CREATOR_TALKING_HEAD") {
+      setAspectRatio("16:9");
+    }
+  }, []);
 
   const [composition, setComposition] = useState<CompositionResult | null>(null);
   const [guidance, setGuidance] = useState<GuidanceResult | null>(null);
   const [captureDecision, setCaptureDecision] = useState<CaptureDecision | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticSample | null>(null);
   const [isAutoCapture, setIsAutoCapture] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatioPreset>("VIEWPORT");
-  const [mirrorSavedPhoto, setMirrorSavedPhoto] = useState(true);
   const [capturedPhoto, setCapturedPhoto] = useState<CapturedPhoto | null>(null);
   const [capturedHistory, setCapturedHistory] = useState<CapturedPhoto[]>([]);
   const [isShutterFlashing, setIsShutterFlashing] = useState(false);
@@ -234,7 +256,15 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     const rawW = isVideoReady && video ? video.videoWidth : 1280;
     const rawH = isVideoReady && video ? video.videoHeight : 720;
     const rect = video ? video.getBoundingClientRect() : null;
-    const crop = computeAspectCropRect(rawW, rawH, aspectRatio, rect?.width, rect?.height);
+    const effectiveDigitalZoom = cameraCapabilities?.zoom ? 1 : zoomLevel;
+    const crop = computeAspectCropRect(
+      rawW,
+      rawH,
+      aspectRatio,
+      rect?.width,
+      rect?.height,
+      effectiveDigitalZoom,
+    );
 
     const canvas = document.createElement("canvas");
     canvas.width = crop.sw;
@@ -275,7 +305,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
       setCapturedPhoto(newPhoto);
       setCapturedHistory((prev) => [newPhoto, ...prev].slice(0, 8));
     }
-  }, [aspectRatio, composition, mirrorSavedPhoto, resetPipelineStates, syntheticPreset, useSynthetic, videoRef]);
+  }, [aspectRatio, cameraCapabilities?.zoom, composition, mirrorSavedPhoto, resetPipelineStates, syntheticPreset, useSynthetic, videoRef, zoomLevel]);
 
   // Auto-capture monitor: triggers takePhoto when ready
   useEffect(() => {
@@ -309,6 +339,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
             sceneProfileRef.current === "AUTO" ? undefined : sceneProfileRef.current;
           const res = await syntheticProcessorRef.current.processFrame(frame, {
             profileOverride: override,
+            template: templateRef.current,
           });
           diagnosticsRef.current?.recordProcessingCycle(
             res.timestamp,
@@ -360,6 +391,10 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
 
       setCameraStatus("STREAMING");
       setActiveDeviceId(cameraManagerRef.current.getActiveDeviceId());
+      const probedCaps = cameraManagerRef.current.getCapabilities();
+      setCameraCapabilities(probedCaps);
+      setZoomLevel(probedCaps.zoom ? probedCaps.zoom.current : 1);
+      setExposureEv(probedCaps.exposureCompensation ? probedCaps.exposureCompensation.current : 0);
 
       // Re-enumerate camera labels now that permission has been granted
       cameraManagerRef.current
@@ -375,21 +410,24 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
 
           const override =
             sceneProfileRef.current === "AUTO" ? undefined : sceneProfileRef.current;
-          const enrichedFrame = override
-            ? {
-                ...extracted,
-                cameraFrame: {
-                  ...extracted.cameraFrame,
-                  payload: {
-                    ...extracted.cameraFrame.payload,
-                    metadata: {
-                      ...extracted.cameraFrame.payload.metadata,
-                      profileOverride: override,
+          const activeTpl = templateRef.current;
+          const enrichedFrame =
+            override || activeTpl !== "NONE"
+              ? {
+                  ...extracted,
+                  cameraFrame: {
+                    ...extracted.cameraFrame,
+                    payload: {
+                      ...extracted.cameraFrame.payload,
+                      metadata: {
+                        ...extracted.cameraFrame.payload.metadata,
+                        ...(override ? { profileOverride: override } : {}),
+                        ...(activeTpl !== "NONE" ? { template: activeTpl } : {}),
+                      },
                     },
                   },
-                },
-              }
-            : extracted;
+                }
+              : extracted;
 
           // Dispatch to Web Worker with automatic fallback to local pipeline
           let handled = false;
@@ -400,7 +438,7 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
           if (!handled && fallbackProcessorRef.current) {
             const res = await fallbackProcessorRef.current.processFrame(
               enrichedFrame.cameraFrame,
-              { profileOverride: override },
+              { profileOverride: override, template: activeTpl },
             );
             diagnosticsRef.current?.recordProcessingCycle(
               res.timestamp,
@@ -437,6 +475,9 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     }
     setComposition(null);
     setGuidance(null);
+    setCameraCapabilities(null);
+    setZoomLevel(1);
+    setExposureEv(0);
     setCameraError(null);
     setCameraStatus("IDLE");
   };
@@ -476,6 +517,75 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     dispatcherRef.current?.updateSettings(settings);
   };
 
+  const changeZoom = useCallback(async (nextZoom: number) => {
+    setZoomLevel(nextZoom);
+    await cameraManagerRef.current?.applyZoom(nextZoom);
+  }, []);
+
+  const changeExposure = useCallback(async (nextEv: number) => {
+    setExposureEv(nextEv);
+    await cameraManagerRef.current?.applyExposureCompensation(nextEv);
+  }, []);
+
+  const changeResolution = useCallback(
+    async (nextPreset: ResolutionPreset) => {
+      if (!cameraManagerRef.current || useSynthetic) return;
+      try {
+        samplerRef.current?.stopSampling();
+        const stream = await cameraManagerRef.current.setResolution(nextPreset);
+        setResolutionPreset(nextPreset);
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play().catch(() => {});
+        }
+        setCameraCapabilities(cameraManagerRef.current.getCapabilities());
+        if (samplerRef.current && video) {
+          samplerRef.current.startSampling(video, async (extracted) => {
+            diagnosticsRef.current?.recordCameraFrame();
+            const override =
+              sceneProfileRef.current === "AUTO" ? undefined : sceneProfileRef.current;
+            const activeTpl = templateRef.current;
+            const enrichedFrame =
+              override || activeTpl !== "NONE"
+                ? {
+                    ...extracted,
+                    cameraFrame: {
+                      ...extracted.cameraFrame,
+                      payload: {
+                        ...extracted.cameraFrame.payload,
+                        metadata: {
+                          ...extracted.cameraFrame.payload.metadata,
+                          ...(override ? { profileOverride: override } : {}),
+                          ...(activeTpl !== "NONE" ? { template: activeTpl } : {}),
+                        },
+                      },
+                    },
+                  }
+                : extracted;
+            let handled = false;
+            if (workerBridgeRef.current) {
+              handled = workerBridgeRef.current.dispatchFrame(enrichedFrame);
+            }
+            if (!handled && fallbackProcessorRef.current) {
+              const res = await fallbackProcessorRef.current.processFrame(
+                enrichedFrame.cameraFrame,
+                { profileOverride: override, template: activeTpl },
+              );
+              setComposition(res.composition);
+              setGuidance(res.guidance);
+              setCaptureDecision(res.capture);
+              dispatcherRef.current?.dispatch(res.guidance, res.capture);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("Resolution switch failed:", err);
+      }
+    },
+    [useSynthetic, videoRef],
+  );
+
   return {
     cameraStatus,
     cameraError,
@@ -484,8 +594,13 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     useSynthetic,
     syntheticPreset,
     sceneProfile,
+    template,
     aspectRatio,
     mirrorSavedPhoto,
+    resolutionPreset,
+    cameraCapabilities,
+    zoomLevel,
+    exposureEv,
     composition,
     guidance,
     captureDecision,
@@ -498,9 +613,13 @@ export function useCameraPipeline(videoRef: React.RefObject<HTMLVideoElement | n
     setUseSynthetic,
     setSyntheticPreset,
     setSceneProfile,
+    setTemplate,
     setAspectRatio,
     setMirrorSavedPhoto,
     setIsAutoCapture,
+    changeZoom,
+    changeExposure,
+    changeResolution,
     clearCapturedPhoto,
     openHistoryPhoto,
     deleteHistoryPhoto,

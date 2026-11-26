@@ -97,6 +97,7 @@ export class PipelineWorkerBridge {
     }, 450);
 
     const profileMeta = extracted.cameraFrame.payload.metadata?.profileOverride;
+    const templateMeta = extracted.cameraFrame.payload.metadata?.template;
     const msg: WorkerInboundMessage = {
       type: "PROCESS_FRAME",
       frameId: extracted.cameraFrame.frameId,
@@ -104,7 +105,14 @@ export class PipelineWorkerBridge {
       width: extracted.cameraFrame.width,
       height: extracted.cameraFrame.height,
       mirrored: extracted.cameraFrame.payload.metadata?.mirrored === true,
-      profileOverride: typeof profileMeta === "string" ? (profileMeta as WorkerInboundMessage extends { profileOverride?: infer P } ? P : never) : undefined,
+      profileOverride:
+        typeof profileMeta === "string"
+          ? (profileMeta as Extract<WorkerInboundMessage, { type: "PROCESS_FRAME" }>["profileOverride"])
+          : undefined,
+      template:
+        typeof templateMeta === "string"
+          ? (templateMeta as Extract<WorkerInboundMessage, { type: "PROCESS_FRAME" }>["template"])
+          : undefined,
       bitmap: extracted.bitmap,
     };
 

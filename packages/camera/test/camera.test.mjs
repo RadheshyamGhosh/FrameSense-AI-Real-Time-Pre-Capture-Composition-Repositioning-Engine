@@ -237,4 +237,48 @@ test("computeAspectCropRect crops centered regions accurately for 1:1, 9:16, and
   // VIEWPORT match for tall container (e.g. 600x800 -> ratio 0.75) crops 1280x720 to 540x720
   const viewportCrop = computeAspectCropRect(1280, 720, "VIEWPORT", 600, 800);
   assert.deepEqual(viewportCrop, { sx: 370, sy: 0, sw: 540, sh: 720 });
+
+  // 2.0x digital zoom on 1280x720 16:9 -> 640x360 centered at (320, 180)
+  const zoomed = computeAspectCropRect(1280, 720, "16:9", undefined, undefined, 2);
+  assert.deepEqual(zoomed, { sx: 320, sy: 180, sw: 640, sh: 360 });
+});
+
+test("CameraManager probes track capabilities and applies zoom/EV/resolution constraints", async () => {
+  const applied = [];
+  const mockTrack = {
+    kind: "video",
+    getCapabilities: () => ({
+      zoom: { min: 1, max: 3, step: 0.2 },
+      exposureCompensation: { min: -2, max: 2, step: 0.5 },
+      width: { min: 640, max: 3840 },
+      height: { min: 480, max: 2160 },
+    }),
+    getSettings: () => ({ deviceId: "pro_cam", width: 1920, height: 1080, zoom: 1.4, exposureCompensation: 0 }),
+    applyConstraints: async (c) => { applied.push(c); },
+    stop: () => {},
+  };
+
+  let requestedConstraints = null;
+  const manager = new CameraManager({
+    enumerateDevices: async () => [],
+    getUserMedia: async (c) => {
+      requestedConstraints = c;
+      return createMockStream([mockTrack]);
+    },
+  });
+
+  await manager.start({ width: 1920, height: 1080 });
+  const caps = manager.getCapabilities();
+  assert.equal(caps.zoom?.max, 3);
+  assert.equal(caps.zoom?.current, 1.4);
+  assert.equal(caps.exposureCompensation?.min, -2);
+  assert.deepEqual(caps.supportedResolutions, ["720p", "1080p", "4K"]);
+
+  assert.equal(await manager.applyZoom(2.0), true);
+  assert.equal(await manager.applyExposureCompensation(-0.5), true);
+  assert.equal(applied.length, 2);
+
+  await manager.setResolution("4K");
+  assert.equal(requestedConstraints.video.width.ideal, 3840);
+  assert.equal(requestedConstraints.video.height.ideal, 2160);
 });
