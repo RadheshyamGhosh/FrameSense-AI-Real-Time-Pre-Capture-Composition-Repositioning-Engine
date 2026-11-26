@@ -76,6 +76,9 @@ function readCompositionConfig(
     excellentScore: readScore(record, "excellentScore", path, issues),
     ruleOfThirdsTolerance: readRatio(record, "ruleOfThirdsTolerance", path, issues),
     minimumHeadroomRatio: readRatio(record, "minimumHeadroomRatio", path, issues),
+    ...(record.maximumHeadroomRatio !== undefined
+      ? { maximumHeadroomRatio: readRatio(record, "maximumHeadroomRatio", path, issues) }
+      : {}),
     minimumSubjectSizeRatio: readRatio(record, "minimumSubjectSizeRatio", path, issues),
     maximumSubjectSizeRatio: readRatio(record, "maximumSubjectSizeRatio", path, issues),
     maximumHorizonAngleDegrees: readHorizonAngle(
@@ -106,6 +109,47 @@ function readInferenceConfig(
     maximumProcessingWidth: readPositiveInteger(record, "maximumProcessingWidth", path, issues),
     maximumProcessingHeight: readPositiveInteger(record, "maximumProcessingHeight", path, issues),
     inferenceEnabled: readBoolean(record, "inferenceEnabled", path, issues),
+    ...(record.lowLightThreshold !== undefined
+      ? { lowLightThreshold: readRatio(record, "lowLightThreshold", path, issues) }
+      : {}),
+    ...(record.overexposedThreshold !== undefined
+      ? { overexposedThreshold: readRatio(record, "overexposedThreshold", path, issues) }
+      : {}),
+    ...(record.clippedHighlightRatio !== undefined
+      ? { clippedHighlightRatio: readRatio(record, "clippedHighlightRatio", path, issues) }
+      : {}),
+    ...(record.backlitSubjectThreshold !== undefined
+      ? { backlitSubjectThreshold: readRatio(record, "backlitSubjectThreshold", path, issues) }
+      : {}),
+    ...(record.backlitDeltaThreshold !== undefined
+      ? { backlitDeltaThreshold: readRatio(record, "backlitDeltaThreshold", path, issues) }
+      : {}),
+    ...(record.blurSharpnessThreshold !== undefined
+      ? { blurSharpnessThreshold: readNonNegativeNumber(record, "blurSharpnessThreshold", path, issues) }
+      : {}),
+    ...(record.blurMaxEdgeThreshold !== undefined
+      ? { blurMaxEdgeThreshold: readNonNegativeNumber(record, "blurMaxEdgeThreshold", path, issues) }
+      : {}),
+    ...(record.horizonContrastThresholdDefault !== undefined
+      ? {
+          horizonContrastThresholdDefault: readNonNegativeNumber(
+            record,
+            "horizonContrastThresholdDefault",
+            path,
+            issues,
+          ),
+        }
+      : {}),
+    ...(record.horizonContrastThresholdWithFaces !== undefined
+      ? {
+          horizonContrastThresholdWithFaces: readNonNegativeNumber(
+            record,
+            "horizonContrastThresholdWithFaces",
+            path,
+            issues,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -131,6 +175,9 @@ function readGuidanceConfig(
       path,
       issues,
     ),
+    ...(record.voiceMinIntervalMs !== undefined
+      ? { voiceMinIntervalMs: readNonNegativeNumber(record, "voiceMinIntervalMs", path, issues) }
+      : {}),
   };
 }
 

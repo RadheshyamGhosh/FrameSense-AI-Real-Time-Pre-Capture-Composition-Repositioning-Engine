@@ -12,6 +12,7 @@
  */
 
 import type {
+  BoundingBox,
   CameraFrame,
   FaceResult,
   FrameQualityMetrics,
@@ -242,6 +243,26 @@ function mirrorFaceBoxHorizontally(face: FaceResult): FaceResult {
   };
 }
 
+function computeFacesEnvelope(faces: readonly FaceResult[]): BoundingBox | undefined {
+  if (faces.length === 0) return undefined;
+  let minX = 1;
+  let minY = 1;
+  let maxX = 0;
+  let maxY = 0;
+  for (const f of faces) {
+    minX = Math.min(minX, f.boundingBox.x);
+    minY = Math.min(minY, f.boundingBox.y);
+    maxX = Math.max(maxX, f.boundingBox.x + f.boundingBox.width);
+    maxY = Math.max(maxY, f.boundingBox.y + f.boundingBox.height);
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0.01, maxX - minX),
+    height: Math.max(0.01, maxY - minY),
+  };
+}
+
 export class RealPerceptionAdapter implements PerceptionAdapter {
   private nativeDetector: BrowserFaceDetector | null = null;
   private nativeAvailable = false;
@@ -299,11 +320,11 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
       }
     }
 
-    // Resolve pixel buffer from explicit options or transferred ImageBitmap
+    // Resolve pixel buffer from explicit options or higher-res 240x160 bitmap extract
     const pixels = options?.pixelData
       ? { data: options.pixelData.data, w: options.pixelData.width, h: options.pixelData.height }
       : bitmap
-        ? extractPixelsFromBitmap(bitmap, 120, 80)
+        ? extractPixelsFromBitmap(bitmap, 240, 160)
         : null;
 
     if (pixels) {
@@ -324,23 +345,50 @@ export class RealPerceptionAdapter implements PerceptionAdapter {
       }
 
       if (options?.detectHorizon !== false) {
-        horizon = detectHorizonFromPixels({
-          data: pixels.data,
-          width: pixels.w,
-          height: pixels.h,
-        });
+        const defaultContrast = options?.horizonContrastThresholdDefault ?? 25;
+        const faceContrast = options?.horizonContrastThresholdWithFaces ?? 42;
+        // Require stronger horizontal contrast when faces are present so indoor room shadows aren't misread as horizons
+        horizon = detectHorizonFromPixels(
+          {
+            data: pixels.data,
+            width: pixels.w,
+            height: pixels.h,
+          },
+          { contrastThreshold: faces.length > 0 ? faceContrast : defaultContrast },
+        );
       }
 
       quality = evaluateFrameQuality(
         { data: pixels.data, width: pixels.w, height: pixels.h },
-        faces[0]?.boundingBox,
+        computeFacesEnvelope(faces),
+        options?.qualityThresholds,
       );
     }
 
-    // Align normalized x-coordinates with mirrored selfie preview when requested
+    // Align normalized coordinates & horizon roll with mirrored selfie preview when requested
     const isMirrored = frame.payload.metadata?.mirrored === true;
-    if (isMirrored && faces.length > 0) {
-      faces = faces.map(mirrorFaceBoxHorizontally);
+    if (isMirrored) {
+      if (faces.length > 0) {
+        faces = faces.map(mirrorFaceBoxHorizontally);
+      }
+      if (horizon?.detected && horizon.angleDegrees !== undefined) {
+        horizon = {
+          ...horizon,
+          angleDegrees: Number((-horizon.angleDegrees).toFixed(2)),
+          line: horizon.line
+            ? {
+                start: {
+                  x: Number((1 - horizon.line.end.x).toFixed(3)),
+                  y: horizon.line.end.y,
+                },
+                end: {
+                  x: Number((1 - horizon.line.start.x).toFixed(3)),
+                  y: horizon.line.start.y,
+                },
+              }
+            : undefined,
+        };
+      }
     }
 
     const scene = classifyScene({ faces, detections: [], horizon });

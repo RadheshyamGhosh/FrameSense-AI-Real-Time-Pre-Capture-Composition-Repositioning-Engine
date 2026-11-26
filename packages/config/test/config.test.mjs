@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ConfigValidationError, getConfig, validateFrameSenseConfig } from "../dist/index.js";
+import { DEFAULT_FRAMESENSE_CONFIG } from "../dist/defaults.js";
 
 const validConfig = Object.freeze({
   composition: {
@@ -94,11 +95,23 @@ test("invalid horizon angle is rejected", () => {
   );
 });
 
-test("complete configuration can be loaded and validated", async () => {
+test("complete configuration can be loaded and validated and matches browser defaults", async () => {
   const config = await getConfig();
 
   assert.equal(config.composition.minimumAcceptableScore, 70);
   assert.equal(config.performance.targetCameraFps, 30);
+  assert.deepEqual(DEFAULT_FRAMESENSE_CONFIG, config);
+});
+
+test("optional quality and headroom thresholds are validated when present", () => {
+  assertValidationIssue(
+    withValue("composition", "maximumHeadroomRatio", 1.5),
+    "composition.maximumHeadroomRatio",
+  );
+  assertValidationIssue(
+    withValue("inference", "lowLightThreshold", -0.1),
+    "inference.lowLightThreshold",
+  );
 });
 
 function withValue(category, key, value) {

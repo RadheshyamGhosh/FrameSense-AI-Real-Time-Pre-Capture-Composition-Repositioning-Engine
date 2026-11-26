@@ -54,6 +54,7 @@ export function App() {
     template,
     aspectRatio,
     mirrorSavedPhoto,
+    isFrontCamera,
     resolutionPreset,
     cameraCapabilities,
     zoomLevel,
@@ -173,7 +174,11 @@ export function App() {
       } else if (e.key.toLowerCase() === "m") {
         handleToggleVoice(!voiceEnabled);
       } else if (e.key.toLowerCase() === "i") {
-        setShowScorecard((prev) => !prev);
+        setShowScorecard((prev) => {
+          const next = !prev;
+          if (next) setShowCameraControls(false);
+          return next;
+        });
       } else if (e.key.toLowerCase() === "t") {
         cycleTemplate();
       }
@@ -197,7 +202,7 @@ export function App() {
   ]);
 
   return (
-    <main className="camera-app-root">
+    <main className={`camera-app-root ${useSynthetic ? "has-sim-bar" : ""}`}>
       {/* Studio Landing Onboarding Screen */}
       {cameraStatus === "IDLE" && (
         <section className="landing-screen" aria-labelledby="app-title">
@@ -341,6 +346,9 @@ export function App() {
             aspectRatio={aspectRatio}
             template={template}
             digitalZoom={cameraCapabilities?.zoom ? 1 : zoomLevel}
+            mirrorPreview={isFrontCamera}
+            useSynthetic={useSynthetic}
+            syntheticPreset={syntheticPreset}
           />
 
           {showScorecard && (
@@ -379,8 +387,16 @@ export function App() {
             onToggleAutoCapture={() => setIsAutoCapture(!isAutoCapture)}
             onToggleGrid={() => setShowGrid(!showGrid)}
             onToggleVoice={() => handleToggleVoice(!voiceEnabled)}
-            onToggleScorecard={() => setShowScorecard(!showScorecard)}
-            onToggleCameraControls={() => setShowCameraControls(!showCameraControls)}
+            onToggleScorecard={() => {
+              const next = !showScorecard;
+              setShowScorecard(next);
+              if (next) setShowCameraControls(false);
+            }}
+            onToggleCameraControls={() => {
+              const next = !showCameraControls;
+              setShowCameraControls(next);
+              if (next) setShowScorecard(false);
+            }}
             onTakePhoto={takePhoto}
             onToggleSettings={() => setShowSettings(true)}
             onToggleDiagnostics={() => setShowDiagnostics(!showDiagnostics)}

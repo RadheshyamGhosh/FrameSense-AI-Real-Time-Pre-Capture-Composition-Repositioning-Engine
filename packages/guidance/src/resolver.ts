@@ -5,6 +5,101 @@ import type { ResolvedAction } from "./types.js";
  * Resolves an individual composition issue to a concrete repositioning guidance action.
  */
 export function resolveIssueToAction(issue: CompositionIssue): ResolvedAction {
+  // Prefer structured semantic issue codes over brittle string matching
+  switch (issue.code) {
+    case "HEADROOM_TOO_TIGHT":
+    case "TILT_UP":
+      return {
+        action: "TILT_UP",
+        direction: "UP",
+        priority: issue.severity === "HIGH" ? "URGENT" : "HIGH",
+        message: "Tilt camera up",
+        reason: issue.message,
+      };
+
+    case "HEADROOM_EXCESSIVE":
+    case "TILT_DOWN":
+      return {
+        action: "TILT_DOWN",
+        direction: "DOWN",
+        priority: "MEDIUM",
+        message: "Tilt camera down",
+        reason: issue.message,
+      };
+
+    case "SUBJECT_TOO_SMALL":
+      return {
+        action: "MOVE_CLOSER",
+        direction: "FORWARD",
+        priority: issue.severity === "HIGH" ? "HIGH" : "MEDIUM",
+        message: "Move closer to subject",
+        reason: issue.message,
+      };
+
+    case "SUBJECT_TOO_LARGE":
+      return {
+        action: "STEP_BACK",
+        direction: "BACKWARD",
+        priority: issue.severity === "HIGH" ? "HIGH" : "MEDIUM",
+        message: "Step back",
+        reason: issue.message,
+      };
+
+    case "NO_SUBJECT":
+      return {
+        action: "MOVE_CLOSER",
+        direction: "FORWARD",
+        priority: "URGENT",
+        message: "Please step into camera frame",
+        reason: issue.message,
+      };
+
+    case "HORIZON_TILT_CCW":
+      return {
+        action: "ROTATE_RIGHT",
+        direction: "CLOCKWISE",
+        priority: issue.severity === "HIGH" ? "HIGH" : "MEDIUM",
+        message: "Rotate camera right to level",
+        reason: issue.message,
+      };
+
+    case "HORIZON_TILT_CW":
+      return {
+        action: "ROTATE_LEFT",
+        direction: "COUNTERCLOCKWISE",
+        priority: issue.severity === "HIGH" ? "HIGH" : "MEDIUM",
+        message: "Rotate camera left to level",
+        reason: issue.message,
+      };
+
+    case "PAN_LEFT":
+      return {
+        action: "MOVE_LEFT",
+        direction: "LEFT",
+        priority: "MEDIUM",
+        message: "Pan camera left",
+        reason: issue.message,
+      };
+
+    case "PAN_RIGHT":
+      return {
+        action: "MOVE_RIGHT",
+        direction: "RIGHT",
+        priority: "MEDIUM",
+        message: "Pan camera right",
+        reason: issue.message,
+      };
+
+    case "OFF_BALANCE":
+      return {
+        action: "HOLD",
+        direction: "NONE",
+        priority: "LOW",
+        message: "Adjust frame balance",
+        reason: issue.message,
+      };
+  }
+
   const msg = issue.message.toLowerCase();
 
   switch (issue.metricType) {

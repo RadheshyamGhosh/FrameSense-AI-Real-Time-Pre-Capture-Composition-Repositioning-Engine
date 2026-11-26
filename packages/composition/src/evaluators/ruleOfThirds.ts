@@ -51,17 +51,22 @@ export function evaluateRuleOfThirds(
 
   let issue;
   if (score < config.minimumAcceptableScore) {
+    let code: "PAN_LEFT" | "PAN_RIGHT" | "TILT_UP" | "OFF_BALANCE" = "OFF_BALANCE";
     let message = "Subject focal point is off the Rule of Thirds grid.";
     if (x < 1 / 3 - tolerance) {
+      code = "PAN_LEFT";
       message = "Subject is framed too far left. Pan camera left.";
     } else if (x > 2 / 3 + tolerance) {
+      code = "PAN_RIGHT";
       message = "Subject is framed too far right. Pan camera right.";
     } else if (y > 2 / 3 + tolerance) {
+      code = "TILT_UP";
       message = "Subject is framed too low. Tilt camera up.";
     }
 
     const severity = score < config.minimumAcceptableScore * 0.6 ? ("HIGH" as const) : ("MEDIUM" as const);
     issue = {
+      code,
       metricType: "RULE_OF_THIRDS" as const,
       severity,
       message,

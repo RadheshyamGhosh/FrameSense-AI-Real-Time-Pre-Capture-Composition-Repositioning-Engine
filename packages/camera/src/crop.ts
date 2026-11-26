@@ -1,3 +1,5 @@
+import type { BoundingBox } from "@framesense/core";
+
 export type AspectRatioPreset = "VIEWPORT" | "16:9" | "4:3" | "1:1" | "9:16";
 
 export interface CropRect {
@@ -43,6 +45,32 @@ export function computeAspectCropRect(
     return { sx: 0, sy: 0, sw: 0, sh: 0 };
   }
 
+  // When rendering inside an object-fit: cover viewport, derive non-VIEWPORT crops
+  // relative to the visible covered sensor region so overlays and exported crops align 1:1.
+  if (
+    preset !== "VIEWPORT" &&
+    viewportWidth &&
+    viewportHeight &&
+    viewportWidth > 0 &&
+    viewportHeight > 0
+  ) {
+    const coverRect = computeAspectCropRect(
+      sourceWidth,
+      sourceHeight,
+      "VIEWPORT",
+      viewportWidth,
+      viewportHeight,
+      digitalZoom,
+    );
+    const guideRect = computeAspectCropRect(viewportWidth, viewportHeight, preset);
+    return {
+      sx: Math.round(coverRect.sx + (guideRect.sx / viewportWidth) * coverRect.sw),
+      sy: Math.round(coverRect.sy + (guideRect.sy / viewportHeight) * coverRect.sh),
+      sw: Math.max(1, Math.round((guideRect.sw / viewportWidth) * coverRect.sw)),
+      sh: Math.max(1, Math.round((guideRect.sh / viewportHeight) * coverRect.sh)),
+    };
+  }
+
   let targetRatio = getAspectRatioValue(preset);
   if (targetRatio === null) {
     if (viewportWidth && viewportHeight && viewportWidth > 0 && viewportHeight > 0) {
@@ -71,4 +99,34 @@ export function computeAspectCropRect(
   const sy = Math.max(0, Math.round((sourceHeight - sh) / 2));
 
   return { sx, sy, sw, sh };
+}
+
+/**
+ * Returns the active crop/zoom rectangle normalized into [0..1] sensor coordinates.
+ */
+export function computeNormalizedCropRegion(
+  sourceWidth: number,
+  sourceHeight: number,
+  preset: AspectRatioPreset,
+  viewportWidth?: number,
+  viewportHeight?: number,
+  digitalZoom = 1,
+): BoundingBox {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  const rect = computeAspectCropRect(
+    sourceWidth,
+    sourceHeight,
+    preset,
+    viewportWidth,
+    viewportHeight,
+    digitalZoom,
+  );
+  return {
+    x: Number((rect.sx / sourceWidth).toFixed(4)),
+    y: Number((rect.sy / sourceHeight).toFixed(4)),
+    width: Number((rect.sw / sourceWidth).toFixed(4)),
+    height: Number((rect.sh / sourceHeight).toFixed(4)),
+  };
 }

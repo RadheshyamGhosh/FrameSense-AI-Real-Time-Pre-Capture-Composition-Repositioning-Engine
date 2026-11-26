@@ -8,6 +8,7 @@ import {
   PipelineWorkerBridge,
   SyntheticCameraSource,
   computeAspectCropRect,
+  computeNormalizedCropRegion,
 } from "../dist/index.js";
 
 // Mock MediaStreamTrack
@@ -241,6 +242,14 @@ test("computeAspectCropRect crops centered regions accurately for 1:1, 9:16, and
   // 2.0x digital zoom on 1280x720 16:9 -> 640x360 centered at (320, 180)
   const zoomed = computeAspectCropRect(1280, 720, "16:9", undefined, undefined, 2);
   assert.deepEqual(zoomed, { sx: 320, sy: 180, sw: 640, sh: 360 });
+
+  const normCrop = computeNormalizedCropRegion(1280, 720, "16:9", undefined, undefined, 2);
+  assert.deepEqual(normCrop, { x: 0.25, y: 0.25, width: 0.5, height: 0.5 });
+
+  // Narrow portrait viewport (400x800) with 16:9 preset must crop within the covered center strip (360x203), not unclipped 1280x720
+  const mobileWidescreen = computeAspectCropRect(1280, 720, "16:9", 400, 800, 1);
+  assert.equal(mobileWidescreen.sw, 360);
+  assert.equal(mobileWidescreen.sh, 203);
 });
 
 test("CameraManager probes track capabilities and applies zoom/EV/resolution constraints", async () => {
@@ -281,4 +290,48 @@ test("CameraManager probes track capabilities and applies zoom/EV/resolution con
   await manager.setResolution("4K");
   assert.equal(requestedConstraints.video.width.ideal, 3840);
   assert.equal(requestedConstraints.video.height.ideal, 2160);
+
+  // Switching by explicit deviceId must not force facingMode: "user" (prevents OverconstrainedError on rear cams)
+  await manager.switchCamera("cam_rear_id");
+  assert.equal(requestedConstraints.video.deviceId?.exact, "cam_rear_id");
+  assert.equal(requestedConstraints.video.facingMode, undefined);
+});
+
+test("CameraManager.setResolution preserves deviceId on failure for recovery and detects rear facingMode", async () => {
+  const rearTrack = {
+    kind: "video",
+    label: "Back Triple Camera",
+    getCapabilities: () => ({ width: { min: 640, max: 1920 }, height: { min: 480, max: 1080 } }),
+    getSettings: () => ({ deviceId: "cam_rear_phone", width: 1280, height: 720, facingMode: "environment" }),
+    stop: () => {},
+  };
+
+  const requests = [];
+  const manager = new CameraManager({
+    enumerateDevices: async () => [],
+    getUserMedia: async (c) => {
+      requests.push(c);
+      if (c.video.width?.ideal === 3840) {
+        const err = new Error("4K unsupported");
+        err.name = "OverconstrainedError";
+        throw err;
+      }
+      return createMockStream([rearTrack]);
+    },
+  });
+
+  await manager.switchCamera("cam_rear_phone");
+  assert.equal(manager.getCapabilities().facingMode, "environment");
+
+  await assert.rejects(() => manager.setResolution("4K"));
+  // Recovery call to previous preset must still target cam_rear_phone, not revert to facingMode: "user"
+  await manager.setResolution("720p");
+  assert.equal(requests[2].video.deviceId?.exact, "cam_rear_phone");
+  assert.equal(requests[2].video.facingMode, undefined);
+
+  const sampler = new FrameSampler({ maxWidth: 640, maxHeight: 360, mirrorHorizontal: true });
+  sampler.setMirrorHorizontal(false);
+  const frame = await sampler.captureFrameFromVideo({ videoWidth: 1280, videoHeight: 720 });
+  assert.ok(frame);
+  assert.equal(frame.cameraFrame.payload.metadata.mirrored, false);
 });

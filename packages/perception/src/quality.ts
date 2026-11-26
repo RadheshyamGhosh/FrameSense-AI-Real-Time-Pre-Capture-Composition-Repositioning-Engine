@@ -1,5 +1,6 @@
+import { DEFAULT_FRAMESENSE_CONFIG } from "@framesense/config/defaults";
 import type { BoundingBox, FrameQualityMetrics } from "@framesense/core";
-import type { PixelDataBuffer } from "./types.js";
+import type { FrameQualityThresholds, PixelDataBuffer } from "./types.js";
 
 /**
  * Evaluates frame exposure, backlighting, and Laplacian edge sharpness
@@ -8,7 +9,19 @@ import type { PixelDataBuffer } from "./types.js";
 export function evaluateFrameQuality(
   buffer: PixelDataBuffer,
   subjectBox?: BoundingBox,
+  thresholds?: FrameQualityThresholds,
 ): FrameQualityMetrics {
+  const inf = DEFAULT_FRAMESENSE_CONFIG.inference;
+  const lowLightThreshold = thresholds?.lowLightThreshold ?? inf.lowLightThreshold ?? 0.18;
+  const overexposedThreshold = thresholds?.overexposedThreshold ?? inf.overexposedThreshold ?? 0.88;
+  const clippedRatioThreshold = thresholds?.clippedHighlightRatio ?? inf.clippedHighlightRatio ?? 0.4;
+  const backlitSubjectThreshold =
+    thresholds?.backlitSubjectThreshold ?? inf.backlitSubjectThreshold ?? 0.3;
+  const backlitDeltaThreshold =
+    thresholds?.backlitDeltaThreshold ?? inf.backlitDeltaThreshold ?? 0.32;
+  const blurSharpnessThreshold =
+    thresholds?.blurSharpnessThreshold ?? inf.blurSharpnessThreshold ?? 3.5;
+  const blurMaxEdgeThreshold = thresholds?.blurMaxEdgeThreshold ?? inf.blurMaxEdgeThreshold ?? 28;
   const { data, width, height } = buffer;
   const totalPixels = width * height;
   if (width < 4 || height < 4 || data.length < totalPixels * 4) {
@@ -93,7 +106,7 @@ export function evaluateFrameQuality(
 
   const sharpness = lapCount > 0 ? Number((lapSum / lapCount).toFixed(2)) : 0;
 
-  if (brightness < 0.18) {
+  if (brightness < lowLightThreshold) {
     return {
       brightness,
       sharpness,
@@ -102,7 +115,7 @@ export function evaluateFrameQuality(
     };
   }
 
-  if (brightness > 0.88 || clippedRatio > 0.4) {
+  if (brightness > overexposedThreshold || clippedRatio > clippedRatioThreshold) {
     return {
       brightness,
       sharpness,
@@ -114,7 +127,7 @@ export function evaluateFrameQuality(
   if (subjectBox && subjectCount > 0 && bgCount > 0) {
     const subMean = subjectLumSum / subjectCount;
     const bgMean = bgLumSum / bgCount;
-    if (subMean < 0.3 && bgMean - subMean > 0.32) {
+    if (subMean < backlitSubjectThreshold && bgMean - subMean > backlitDeltaThreshold) {
       return {
         brightness,
         sharpness,
@@ -125,7 +138,7 @@ export function evaluateFrameQuality(
   }
 
   // Flag soft focus or motion blur on active subjects when both mean and peak local edges collapse
-  if (subjectBox && sharpness < 3.5 && maxEdge < 28) {
+  if (subjectBox && sharpness < blurSharpnessThreshold && maxEdge < blurMaxEdgeThreshold) {
     return {
       brightness,
       sharpness,

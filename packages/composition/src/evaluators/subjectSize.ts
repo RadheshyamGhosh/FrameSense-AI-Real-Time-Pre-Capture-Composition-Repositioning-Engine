@@ -36,6 +36,7 @@ export function evaluateSubjectSize(
 
     if (score < config.minimumAcceptableScore) {
       issue = {
+        code: "SUBJECT_TOO_SMALL" as const,
         metricType: "SUBJECT_SIZE" as const,
         severity: sizeRatio < minSize * 0.5 ? ("HIGH" as const) : ("MEDIUM" as const),
         message: "Subject is too small in frame. Move closer or zoom in.",
@@ -49,6 +50,7 @@ export function evaluateSubjectSize(
 
     if (score < config.minimumAcceptableScore) {
       issue = {
+        code: "SUBJECT_TOO_LARGE" as const,
         metricType: "SUBJECT_SIZE" as const,
         severity: sizeRatio > 0.9 ? ("HIGH" as const) : ("MEDIUM" as const),
         message: "Subject is too close or cropped. Step back.",

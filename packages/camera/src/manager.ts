@@ -19,6 +19,7 @@ interface ExtendedTrackCapabilities extends MediaTrackCapabilities {
 interface ExtendedTrackSettings extends MediaTrackSettings {
   zoom?: number;
   exposureCompensation?: number;
+  facingMode?: string;
 }
 
 const RESOLUTION_DIMENSIONS: Record<ResolutionPreset, { width: number; height: number }> = {
@@ -43,6 +44,7 @@ export class CameraManager {
   private status: CameraStatus = "IDLE";
   private currentStream: MediaStream | null = null;
   private currentDeviceId: string | null = null;
+  private currentFacingMode: "user" | "environment" | undefined = undefined;
   private readonly mediaDevicesProvider: MediaDevicesProvider | null;
 
   constructor(customProvider?: MediaDevicesProvider) {
@@ -101,11 +103,15 @@ export class CameraManager {
       width: options?.width ? { ideal: options.width } : { ideal: 1920 },
       height: options?.height ? { ideal: options.height } : { ideal: 1080 },
       frameRate: options?.targetFps ? { ideal: options.targetFps } : { ideal: 30 },
-      facingMode: options?.facingMode ?? "user",
     };
 
     if (options?.deviceId) {
       videoConstraints.deviceId = { exact: options.deviceId };
+      if (options.facingMode) {
+        videoConstraints.facingMode = options.facingMode;
+      }
+    } else {
+      videoConstraints.facingMode = options?.facingMode ?? "user";
     }
 
     const constraints: MediaStreamConstraints = {
@@ -120,7 +126,17 @@ export class CameraManager {
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
-        this.currentDeviceId = videoTrack.getSettings()?.deviceId ?? options?.deviceId ?? null;
+        const settings = (
+          typeof videoTrack.getSettings === "function" ? videoTrack.getSettings() : {}
+        ) as ExtendedTrackSettings;
+        this.currentDeviceId = settings.deviceId ?? options?.deviceId ?? null;
+        if (settings.facingMode === "user" || settings.facingMode === "environment") {
+          this.currentFacingMode = settings.facingMode;
+        } else if (options?.facingMode) {
+          this.currentFacingMode = options.facingMode;
+        } else {
+          this.currentFacingMode = undefined;
+        }
       }
 
       return stream;
@@ -151,6 +167,7 @@ export class CameraManager {
       this.currentStream = null;
     }
     this.currentDeviceId = null;
+    this.currentFacingMode = undefined;
     this.status = "IDLE";
   }
 
@@ -200,12 +217,22 @@ export class CameraManager {
     if (maxW >= 1920) supportedResolutions.push("1080p");
     if (maxW >= 3840) supportedResolutions.push("4K");
 
+    let facingMode: "user" | "environment" | undefined;
+    if (settings.facingMode === "user" || settings.facingMode === "environment") {
+      facingMode = settings.facingMode;
+    } else if (this.currentFacingMode) {
+      facingMode = this.currentFacingMode;
+    } else if (typeof track.label === "string" && /\b(back|rear|environment)\b/i.test(track.label)) {
+      facingMode = "environment";
+    }
+
     return {
       zoom: toRange(caps.zoom, settings.zoom, 1),
       exposureCompensation: toRange(caps.exposureCompensation, settings.exposureCompensation, 0),
       supportedResolutions,
       activeWidth: settings.width,
       activeHeight: settings.height,
+      facingMode,
     };
   }
 
@@ -244,16 +271,26 @@ export class CameraManager {
   }
 
   /**
-   * Restarts active camera device stream with a target resolution preset.
+   * Restarts active camera device stream with a target resolution preset,
+   * preserving device/facing identity on failure so callers can recover the prior camera.
    */
   public async setResolution(preset: ResolutionPreset): Promise<MediaStream> {
     const dims = RESOLUTION_DIMENSIONS[preset];
-    return this.start({
-      deviceId: this.currentDeviceId ?? undefined,
-      width: dims.width,
-      height: dims.height,
-      targetFps: 30,
-    });
+    const prevDeviceId = this.currentDeviceId;
+    const prevFacingMode = this.currentFacingMode;
+    try {
+      return await this.start({
+        deviceId: prevDeviceId ?? undefined,
+        facingMode: prevDeviceId ? undefined : prevFacingMode,
+        width: dims.width,
+        height: dims.height,
+        targetFps: 30,
+      });
+    } catch (err) {
+      this.currentDeviceId = prevDeviceId;
+      this.currentFacingMode = prevFacingMode;
+      throw err;
+    }
   }
 
   private normalizeError(error: unknown): CameraError {

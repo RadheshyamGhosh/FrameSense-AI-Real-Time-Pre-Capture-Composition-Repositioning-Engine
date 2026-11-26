@@ -133,4 +133,4 @@ Tested on standard development hardware:
 
 ## License
 
-MIT
+UNLICENSED (see [`LICENSE`](./LICENSE) placeholder until final license selection).

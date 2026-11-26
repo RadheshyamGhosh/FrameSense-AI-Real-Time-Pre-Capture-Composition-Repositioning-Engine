@@ -9,6 +9,9 @@ export interface ViewfinderProps {
   readonly aspectRatio?: AspectRatioPreset;
   readonly template?: FramingTemplate;
   readonly digitalZoom?: number;
+  readonly mirrorPreview?: boolean;
+  readonly useSynthetic?: boolean;
+  readonly syntheticPreset?: string;
 }
 
 export function Viewfinder({
@@ -18,6 +21,9 @@ export function Viewfinder({
   aspectRatio = "VIEWPORT",
   template = "NONE",
   digitalZoom = 1,
+  mirrorPreview = true,
+  useSynthetic = false,
+  syntheticPreset,
 }: ViewfinderProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -53,6 +59,41 @@ export function Viewfinder({
         aspectRatio === "VIEWPORT"
           ? { sx: 0, sy: 0, sw: W, sh: H }
           : computeAspectCropRect(W, H, aspectRatio);
+
+      // Render a calibrated synthetic preview backdrop when running Simulation Mode without live webcam pixels
+      if (useSynthetic) {
+        ctx.save();
+        ctx.fillStyle = "#0b111b";
+        ctx.fillRect(0, 0, W, H);
+        const angleRad = ((composition?.horizonAngleDegrees ?? 0) * Math.PI) / 180;
+        ctx.save();
+        ctx.translate(W / 2, H * 0.52);
+        ctx.rotate(angleRad);
+        ctx.fillStyle = "rgba(30, 58, 95, 0.28)";
+        ctx.fillRect(-W, 0, W * 2, H);
+        ctx.restore();
+
+        if (composition?.primarySubjectBounds) {
+          const box = composition.primarySubjectBounds;
+          const scx = guideRect.sx + (box.x + box.width / 2) * guideRect.sw;
+          const scy = guideRect.sy + (box.y + box.height / 2) * guideRect.sh;
+          const rx = Math.max(16, (box.width * guideRect.sw) / 2);
+          const ry = Math.max(22, (box.height * guideRect.sh) / 2);
+          ctx.fillStyle = "rgba(148, 163, 184, 0.18)";
+          ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(scx, scy, rx * 0.78, ry * 0.9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        if (syntheticPreset) {
+          ctx.fillStyle = "rgba(148, 163, 184, 0.55)";
+          ctx.font = "600 11px sans-serif";
+          ctx.fillText(`SIM SCENE: ${syntheticPreset}`, guideRect.sx + 14, guideRect.sy + guideRect.sh - 14);
+        }
+        ctx.restore();
+      }
 
       if (aspectRatio !== "VIEWPORT" && guideRect.sw > 0 && guideRect.sh > 0) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
@@ -120,16 +161,19 @@ export function Viewfinder({
       ctx.setLineDash([]);
 
       // 2b. Render Calibrated Studio / Biometric Template Guides
-      const templateLocked = (composition?.overallScore ?? 0) >= 85;
+      const templateLocked = Boolean(
+        composition && composition.overallScore >= 85 && composition.issues.length === 0,
+      );
       const templateStroke = templateLocked
         ? "rgba(46, 213, 115, 0.85)"
         : "rgba(255, 171, 0, 0.85)";
 
       if (template === "PASSPORT_ID") {
+        // Vertical span [0.16..0.70] (height 0.54) matches PASSPORT_ID evaluator (top 0.10..0.25, height 0.36..0.68)
         const cx = gx + gw * 0.5;
-        const cy = gy + gh * 0.44;
-        const rx = Math.min(gw, gh) * 0.23;
-        const ry = gh * 0.31;
+        const cy = gy + gh * 0.43;
+        const rx = Math.min(gw, gh) * 0.22;
+        const ry = gh * 0.27;
 
         ctx.save();
         ctx.strokeStyle = templateStroke;
@@ -180,9 +224,17 @@ export function Viewfinder({
         ctx.restore();
       } else if (template === "CREATOR_TALKING_HEAD") {
         ctx.save();
+        // Eye-line band evaluated by CREATOR_TALKING_HEAD (y in 0.22..0.45)
+        ctx.strokeStyle = "rgba(46, 213, 115, 0.45)";
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(gx + gw * 0.22, gy + gh * 0.33);
+        ctx.lineTo(gx + gw * 0.78, gy + gh * 0.33);
+        ctx.stroke();
+
         ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
         ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 4]);
         ctx.strokeRect(gx + gw * 0.08, gy + gh * 0.76, gw * 0.84, gh * 0.16);
         ctx.font = "700 10px sans-serif";
         ctx.fillStyle = "rgba(56, 189, 248, 0.8)";
@@ -226,13 +278,13 @@ export function Viewfinder({
         ctx.restore();
       }
 
-      // 4. Draw Tracked Subject Reticle & Power-Point Alignment Vector
+      // 4. Draw Tracked Subject Reticle & Power-Point Alignment Vector inside active crop guideRect
       if (composition?.primarySubjectBounds) {
         const box = composition.primarySubjectBounds;
-        const bx = box.x * W;
-        const by = box.y * H;
-        const bw = box.width * W;
-        const bh = box.height * H;
+        const bx = gx + box.x * gw;
+        const by = gy + box.y * gh;
+        const bw = box.width * gw;
+        const bh = box.height * gh;
         const corner = Math.min(22, Math.max(10, Math.min(bw, bh) * 0.2));
 
         const subjectColor =
@@ -263,10 +315,10 @@ export function Viewfinder({
         ctx.lineTo(bx + bw, by + bh - corner);
         ctx.stroke();
 
-        // Focal eye-line reticle & dashed alignment vector to nearest Rule-of-Thirds target
+        // Focal eye-line reticle & dashed alignment vector to nearest Rule-of-Thirds target inside active frame
         if (composition.primaryFocalPoint) {
-          const fx = composition.primaryFocalPoint.x * W;
-          const fy = composition.primaryFocalPoint.y * H;
+          const fx = gx + composition.primaryFocalPoint.x * gw;
+          const fy = gy + composition.primaryFocalPoint.y * gh;
 
           ctx.fillStyle = subjectColor;
           ctx.beginPath();
@@ -277,15 +329,15 @@ export function Viewfinder({
             const candidateTargets =
               composition.profile === "PORTRAIT" || composition.profile === "ARCHITECTURE"
                 ? [
-                    { x: W * (1 / 3), y: H * (1 / 3) },
-                    { x: W * 0.5, y: H * (1 / 3) },
-                    { x: W * (2 / 3), y: H * (1 / 3) },
+                    { x: gx + gw * (1 / 3), y: gy + gh * (1 / 3) },
+                    { x: gx + gw * 0.5, y: gy + gh * (1 / 3) },
+                    { x: gx + gw * (2 / 3), y: gy + gh * (1 / 3) },
                   ]
                 : [
-                    { x: W * (1 / 3), y: H * (1 / 3) },
-                    { x: W * (2 / 3), y: H * (1 / 3) },
-                    { x: W * (1 / 3), y: H * (2 / 3) },
-                    { x: W * (2 / 3), y: H * (2 / 3) },
+                    { x: gx + gw * (1 / 3), y: gy + gh * (1 / 3) },
+                    { x: gx + gw * (2 / 3), y: gy + gh * (1 / 3) },
+                    { x: gx + gw * (1 / 3), y: gy + gh * (2 / 3) },
+                    { x: gx + gw * (2 / 3), y: gy + gh * (2 / 3) },
                   ];
 
             let nearest = candidateTargets[0];
@@ -324,7 +376,11 @@ export function Viewfinder({
 
     animId = requestAnimationFrame(renderOverlay);
     return () => cancelAnimationFrame(animId);
-  }, [aspectRatio, composition, showGrid, template, videoRef]);
+  }, [aspectRatio, composition, showGrid, syntheticPreset, template, useSynthetic, videoRef]);
+
+  const videoTransforms: string[] = [];
+  if (mirrorPreview) videoTransforms.push("scaleX(-1)");
+  if (digitalZoom > 1) videoTransforms.push(`scale(${digitalZoom})`);
 
   return (
     <div className="viewfinder-container">
@@ -335,7 +391,7 @@ export function Viewfinder({
         autoPlay
         className="viewfinder-video"
         style={{
-          transform: digitalZoom > 1 ? `scaleX(-1) scale(${digitalZoom})` : "scaleX(-1)",
+          transform: videoTransforms.length > 0 ? videoTransforms.join(" ") : undefined,
         }}
       />
       <canvas ref={canvasRef} className="viewfinder-overlay" />

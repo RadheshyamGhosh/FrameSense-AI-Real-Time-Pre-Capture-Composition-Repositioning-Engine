@@ -34,6 +34,7 @@ export function evaluateTemplateCompliance(
     // Biometric ID requires dead-center alignment, ~50% head height inside oval, and <= 1.5 deg tilt
     if (Math.abs(cx - 0.5) > 0.05) {
       issues.push({
+        code: cx < 0.5 ? "PAN_LEFT" : "PAN_RIGHT",
         metricType: "SUBJECT_POSITION",
         severity: "HIGH",
         message:
@@ -46,6 +47,7 @@ export function evaluateTemplateCompliance(
 
     if (height < 0.36) {
       issues.push({
+        code: "SUBJECT_TOO_SMALL",
         metricType: "SUBJECT_SIZE",
         severity: "HIGH",
         message: "Subject is too small for ID oval. Move closer or zoom in.",
@@ -53,6 +55,7 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 20;
     } else if (height > 0.68) {
       issues.push({
+        code: "SUBJECT_TOO_LARGE",
         metricType: "SUBJECT_SIZE",
         severity: "HIGH",
         message: "Subject is too close for ID oval. Step back.",
@@ -62,6 +65,7 @@ export function evaluateTemplateCompliance(
 
     if (topY < 0.1) {
       issues.push({
+        code: "HEADROOM_TOO_TIGHT",
         metricType: "HEADROOM",
         severity: "HIGH",
         message: "Headroom too tight for ID standard. Tilt camera up.",
@@ -69,6 +73,7 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 16;
     } else if (topY > 0.25) {
       issues.push({
+        code: "HEADROOM_EXCESSIVE",
         metricType: "HEADROOM",
         severity: "MEDIUM",
         message: "Subject too low in ID oval. Tilt camera down.",
@@ -79,6 +84,7 @@ export function evaluateTemplateCompliance(
     if (horizon?.detected && horizon.angleDegrees !== undefined && Math.abs(horizon.angleDegrees) > 1.5) {
       const dir = horizon.angleDegrees > 0 ? "counter-clockwise" : "clockwise";
       issues.push({
+        code: horizon.angleDegrees > 0 ? "HORIZON_TILT_CCW" : "HORIZON_TILT_CW",
         metricType: "HORIZON_ALIGNMENT",
         severity: "HIGH",
         message: `ID standard requires level head (${Math.abs(horizon.angleDegrees).toFixed(1)}°). Rotate camera ${dir} to level.`,
@@ -86,9 +92,10 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 16;
     }
   } else if (template === "HEADSHOT_PRO") {
-    // Corporate / LinkedIn headshot: crisp upper-chest framing, balanced center, eye-line ~0.28..0.38
+    // Corporate / LinkedIn headshot: crisp upper-chest framing, balanced center, headroom clear
     if (Math.abs(cx - 0.5) > 0.08) {
       issues.push({
+        code: cx < 0.5 ? "PAN_LEFT" : "PAN_RIGHT",
         metricType: "SUBJECT_POSITION",
         severity: "MEDIUM",
         message:
@@ -101,6 +108,7 @@ export function evaluateTemplateCompliance(
 
     if (height < 0.24) {
       issues.push({
+        code: "SUBJECT_TOO_SMALL",
         metricType: "SUBJECT_SIZE",
         severity: "MEDIUM",
         message: "Headshot subject is too small. Move closer.",
@@ -108,6 +116,7 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 14;
     } else if (height > 0.6) {
       issues.push({
+        code: "SUBJECT_TOO_LARGE",
         metricType: "SUBJECT_SIZE",
         severity: "MEDIUM",
         message: "Too close for headshot framing. Step back.",
@@ -115,10 +124,11 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 14;
     }
   } else if (template === "CREATOR_TALKING_HEAD") {
-    // Desk presenter: keep eyes near top third line (0.26..0.40) and scale around 0.20..0.48
+    // Desk presenter: keep eyes near top third line (0.22..0.45)
     const eyeY = subject.focalPoint.y;
     if (eyeY < 0.22) {
       issues.push({
+        code: "HEADROOM_TOO_TIGHT",
         metricType: "HEADROOM",
         severity: "MEDIUM",
         message: "Eyes near top border. Tilt camera up slightly.",
@@ -126,6 +136,7 @@ export function evaluateTemplateCompliance(
       penaltyPoints += 12;
     } else if (eyeY > 0.45) {
       issues.push({
+        code: "HEADROOM_EXCESSIVE",
         metricType: "HEADROOM",
         severity: "MEDIUM",
         message: "Sitting too low for presenter zone. Tilt camera down.",

@@ -24,6 +24,7 @@ export type {
 export type {
   CompositionContext,
   CompositionIssue,
+  CompositionIssueCode,
   CompositionMetric,
   CompositionMetricType,
   CompositionResult,

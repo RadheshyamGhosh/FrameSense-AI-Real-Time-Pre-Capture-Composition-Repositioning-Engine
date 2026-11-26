@@ -96,15 +96,23 @@ export class PipelineWorkerBridge {
       this.isBusy = false;
     }, 450);
 
-    const profileMeta = extracted.cameraFrame.payload.metadata?.profileOverride;
-    const templateMeta = extracted.cameraFrame.payload.metadata?.template;
+    const meta = extracted.cameraFrame.payload.metadata;
+    const profileMeta = meta?.profileOverride;
+    const templateMeta = meta?.template;
+    const cropRegion =
+      typeof meta?.cropX === "number" &&
+      typeof meta?.cropY === "number" &&
+      typeof meta?.cropW === "number" &&
+      typeof meta?.cropH === "number"
+        ? { x: meta.cropX, y: meta.cropY, width: meta.cropW, height: meta.cropH }
+        : undefined;
     const msg: WorkerInboundMessage = {
       type: "PROCESS_FRAME",
       frameId: extracted.cameraFrame.frameId,
       timestamp: extracted.cameraFrame.timestamp,
       width: extracted.cameraFrame.width,
       height: extracted.cameraFrame.height,
-      mirrored: extracted.cameraFrame.payload.metadata?.mirrored === true,
+      mirrored: meta?.mirrored === true,
       profileOverride:
         typeof profileMeta === "string"
           ? (profileMeta as Extract<WorkerInboundMessage, { type: "PROCESS_FRAME" }>["profileOverride"])
@@ -113,6 +121,7 @@ export class PipelineWorkerBridge {
         typeof templateMeta === "string"
           ? (templateMeta as Extract<WorkerInboundMessage, { type: "PROCESS_FRAME" }>["template"])
           : undefined,
+      cropRegion,
       bitmap: extracted.bitmap,
     };
 

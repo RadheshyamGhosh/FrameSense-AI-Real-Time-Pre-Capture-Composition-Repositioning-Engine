@@ -305,7 +305,6 @@ h1 {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
 }
 
 .viewfinder-overlay {
@@ -715,6 +714,8 @@ h1 {
   top: 4.9rem;
   right: 1.25rem;
   width: 268px;
+  max-height: calc(100vh - 13.5rem);
+  overflow-y: auto;
   background: var(--bg-surface);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-glass);
@@ -817,9 +818,11 @@ h1 {
 /* ======================== Camera & Lens Controls Popover ======================== */
 .camera-controls-popover {
   position: absolute;
-  bottom: 7.2rem;
+  bottom: 7.4rem;
   right: 1.25rem;
   width: 276px;
+  max-height: calc(100vh - 14.5rem);
+  overflow-y: auto;
   background: var(--bg-surface);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-glass);
@@ -830,6 +833,11 @@ h1 {
   flex-direction: column;
   gap: 0.85rem;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.has-sim-bar .camera-controls-popover,
+.has-sim-bar .diagnostics-panel {
+  bottom: 9.8rem;
 }
 
 .lens-control-group {
@@ -1063,9 +1071,21 @@ h1 {
   overflow-y: auto;
 }
 
+@media (max-width: 1020px) {
+  .guidance-hud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .guidance-center-stack {
+    order: 3;
+    width: 100%;
+  }
+}
+
 @media (max-width: 680px) {
   .review-body { grid-template-columns: 1fr; }
-  .guidance-hud { grid-template-columns: auto 1fr auto; }
   .guidance-text { font-size: 0.8rem; }
   .studio-dock { gap: 0.6rem; padding: 0.4rem 0.75rem; }
 }

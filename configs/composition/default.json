@@ -3,6 +3,7 @@
   "excellentScore": 90,
   "ruleOfThirdsTolerance": 0.08,
   "minimumHeadroomRatio": 0.08,
+  "maximumHeadroomRatio": 0.22,
   "minimumSubjectSizeRatio": 0.18,
   "maximumSubjectSizeRatio": 0.72,
   "maximumHorizonAngleDegrees": 3,

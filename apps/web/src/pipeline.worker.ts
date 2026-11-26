@@ -64,6 +64,7 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
         const result = await processor.processFrame(frame, {
           profileOverride: data.profileOverride,
           template: data.template,
+          cropRegion: data.cropRegion,
         });
 
         // Release the GPU bitmap memory after analysis
@@ -76,6 +77,8 @@ self.addEventListener("message", async (ev: MessageEvent<WorkerInboundMessage>) 
           frameId: result.frameId,
           timestamp: result.timestamp,
           processingTimeMs: result.processingTimeMs,
+          inferenceLatencyMs: result.inferenceLatencyMs,
+          guidanceLatencyMs: result.guidanceLatencyMs,
           composition: result.composition,
           guidance: result.guidance,
           capture: result.capture,

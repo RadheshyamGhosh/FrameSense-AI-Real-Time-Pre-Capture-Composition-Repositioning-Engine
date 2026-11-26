@@ -9,6 +9,7 @@ export interface CompositionConfig {
    */
   readonly ruleOfThirdsTolerance: number;
   readonly minimumHeadroomRatio: number;
+  readonly maximumHeadroomRatio?: number;
   readonly minimumSubjectSizeRatio: number;
   readonly maximumSubjectSizeRatio: number;
   /**
@@ -28,6 +29,15 @@ export interface InferenceConfig {
   readonly maximumProcessingWidth: number;
   readonly maximumProcessingHeight: number;
   readonly inferenceEnabled: boolean;
+  readonly lowLightThreshold?: number;
+  readonly overexposedThreshold?: number;
+  readonly clippedHighlightRatio?: number;
+  readonly backlitSubjectThreshold?: number;
+  readonly backlitDeltaThreshold?: number;
+  readonly blurSharpnessThreshold?: number;
+  readonly blurMaxEdgeThreshold?: number;
+  readonly horizonContrastThresholdDefault?: number;
+  readonly horizonContrastThresholdWithFaces?: number;
 }
 
 export interface GuidanceConfig {
@@ -36,6 +46,7 @@ export interface GuidanceConfig {
   readonly recommendationPersistenceMs: number;
   readonly stabilityDurationMs: number;
   readonly maximumRepeatedAnnouncements: number;
+  readonly voiceMinIntervalMs?: number;
 }
 
 export interface PerformanceConfig {

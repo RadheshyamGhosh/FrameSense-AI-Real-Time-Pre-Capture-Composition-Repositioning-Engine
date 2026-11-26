@@ -1,4 +1,5 @@
 import type {
+  BoundingBox,
   CameraFrame,
   CaptureDecision,
   CompositionResult,
@@ -23,6 +24,7 @@ export interface CameraCapabilities {
   readonly supportedResolutions: readonly ResolutionPreset[];
   readonly activeWidth?: number;
   readonly activeHeight?: number;
+  readonly facingMode?: "user" | "environment";
 }
 
 export type CameraStatus =
@@ -81,6 +83,7 @@ export type WorkerInboundMessage =
       readonly mirrored?: boolean;
       readonly profileOverride?: SceneType;
       readonly template?: FramingTemplate;
+      readonly cropRegion?: BoundingBox;
       readonly bitmap?: ImageBitmap;
     }
   | { readonly type: "RESET" };
@@ -92,6 +95,8 @@ export type WorkerOutboundMessage =
       readonly frameId: string;
       readonly timestamp: number;
       readonly processingTimeMs: number;
+      readonly inferenceLatencyMs?: number;
+      readonly guidanceLatencyMs?: number;
       readonly composition: CompositionResult;
       readonly guidance: GuidanceResult;
       readonly capture: CaptureDecision;

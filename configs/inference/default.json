@@ -4,5 +4,14 @@
   "modelConfidenceThreshold": 0.55,
   "maximumProcessingWidth": 640,
   "maximumProcessingHeight": 360,
-  "inferenceEnabled": true
+  "inferenceEnabled": true,
+  "lowLightThreshold": 0.18,
+  "overexposedThreshold": 0.88,
+  "clippedHighlightRatio": 0.4,
+  "backlitSubjectThreshold": 0.3,
+  "backlitDeltaThreshold": 0.32,
+  "blurSharpnessThreshold": 3.5,
+  "blurMaxEdgeThreshold": 28,
+  "horizonContrastThresholdDefault": 25,
+  "horizonContrastThresholdWithFaces": 42
 }

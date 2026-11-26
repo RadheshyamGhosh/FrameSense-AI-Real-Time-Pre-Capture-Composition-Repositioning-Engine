@@ -1,4 +1,5 @@
 import type { CompositionConfig } from "@framesense/config";
+import { DEFAULT_FRAMESENSE_CONFIG } from "@framesense/config/defaults";
 import type {
   CompositionContext,
   CompositionIssue,
@@ -15,16 +16,8 @@ import { evaluateTemplateCompliance } from "./evaluators/template.js";
 import { extractPrimarySubject } from "./subject.js";
 import type { CompositionEvaluationOptions, SceneWeights } from "./types.js";
 
-export const DEFAULT_COMPOSITION_CONFIG: CompositionConfig = Object.freeze({
-  minimumAcceptableScore: 70,
-  excellentScore: 90,
-  ruleOfThirdsTolerance: 0.08,
-  minimumHeadroomRatio: 0.08,
-  minimumSubjectSizeRatio: 0.18,
-  maximumSubjectSizeRatio: 0.72,
-  maximumHorizonAngleDegrees: 3,
-  minimumConfidence: 0.6,
-});
+export const DEFAULT_COMPOSITION_CONFIG: CompositionConfig =
+  DEFAULT_FRAMESENSE_CONFIG.composition;
 
 const PROFILE_WEIGHTS: Record<SceneType, SceneWeights> = {
   PORTRAIT: {
@@ -127,6 +120,7 @@ export function evaluateComposition(
   // If no salient subject detected for portrait/group framing
   if (subject.confidence === 0 && (profile === "PORTRAIT" || profile === "GROUP" || activeTemplate !== "NONE")) {
     issues.push({
+      code: "NO_SUBJECT",
       metricType: "SUBJECT_POSITION",
       severity: "HIGH",
       message: "No person detected. Step into camera view.",

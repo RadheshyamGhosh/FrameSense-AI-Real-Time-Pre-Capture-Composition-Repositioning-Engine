@@ -16,7 +16,7 @@ export class FrameSampler {
   private readonly maxHeight: number;
   private readonly deviceId?: string;
   private readonly orientation: FrameOrientation;
-  private readonly mirrorHorizontal: boolean;
+  private mirrorHorizontal: boolean;
   private readonly minIntervalMs: number;
 
   private frameCounter = 0;
@@ -32,6 +32,14 @@ export class FrameSampler {
     this.orientation = options?.orientation ?? "LANDSCAPE";
     this.mirrorHorizontal = options?.mirrorHorizontal ?? false;
     this.minIntervalMs = 1000 / this.targetFps;
+  }
+
+  public setMirrorHorizontal(mirror: boolean): void {
+    this.mirrorHorizontal = mirror;
+  }
+
+  public getMirrorHorizontal(): boolean {
+    return this.mirrorHorizontal;
   }
 
   /**

@@ -22,7 +22,7 @@ export function evaluateHeadroom(
   const headroom = subject.boundingBox.y;
   const minHeadroom = config.minimumHeadroomRatio; // e.g. 0.08
   // Maximum desirable headroom before subject looks dropped down into the bottom of the frame
-  const maxHeadroom = 0.22;
+  const maxHeadroom = config.maximumHeadroomRatio ?? 0.22;
 
   let score: number;
   let errorMagnitude = 0;
@@ -36,6 +36,7 @@ export function evaluateHeadroom(
 
     const severity = headroom <= 0.02 ? ("HIGH" as const) : ("MEDIUM" as const);
     issue = {
+      code: "HEADROOM_TOO_TIGHT" as const,
       metricType: "HEADROOM" as const,
       severity,
       message:
@@ -53,6 +54,7 @@ export function evaluateHeadroom(
     if (score < config.minimumAcceptableScore) {
       const severity = headroom > 0.35 ? ("HIGH" as const) : ("MEDIUM" as const);
       issue = {
+        code: "HEADROOM_EXCESSIVE" as const,
         metricType: "HEADROOM" as const,
         severity,
         message: "Excessive empty space above head. Tilt camera down or raise camera.",

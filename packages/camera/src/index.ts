@@ -1,5 +1,6 @@
 export {
   computeAspectCropRect,
+  computeNormalizedCropRegion,
   getAspectRatioValue,
   type AspectRatioPreset,
   type CropRect,

@@ -287,3 +287,14 @@ test("blocks auto-capture stability when frameQuality status is BLURRY", () => {
   assert.match(out.capture.reason, /blur/i);
 });
 
+test("resolves typed issue.code cleanly without depending on message phrasing", () => {
+  const res = resolveIssueToAction({
+    code: "HORIZON_TILT_CCW",
+    metricType: "HORIZON_ALIGNMENT",
+    severity: "HIGH",
+    message: "Custom localized string without English direction words",
+  });
+  assert.equal(res.action, "ROTATE_RIGHT");
+  assert.equal(res.direction, "CLOCKWISE");
+});
+

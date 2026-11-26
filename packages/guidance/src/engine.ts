@@ -1,4 +1,5 @@
 import type { GuidanceConfig } from "@framesense/config";
+import { DEFAULT_FRAMESENSE_CONFIG } from "@framesense/config/defaults";
 import type { CompositionResult, GuidanceResult } from "@framesense/core";
 import { resolvePrimaryAction } from "./resolver.js";
 import { evaluateCaptureStability } from "./stability.js";
@@ -8,13 +9,7 @@ import type {
   GuidanceEngineState,
 } from "./types.js";
 
-export const DEFAULT_GUIDANCE_CONFIG: GuidanceConfig = Object.freeze({
-  minimumGuidanceConfidence: 0.65,
-  guidanceCooldownMs: 1200,
-  recommendationPersistenceMs: 500,
-  stabilityDurationMs: 750,
-  maximumRepeatedAnnouncements: 2,
-});
+export const DEFAULT_GUIDANCE_CONFIG: GuidanceConfig = DEFAULT_FRAMESENSE_CONFIG.guidance;
 
 export const INITIAL_GUIDANCE_STATE: GuidanceEngineState = Object.freeze({
   currentGuidance: null,

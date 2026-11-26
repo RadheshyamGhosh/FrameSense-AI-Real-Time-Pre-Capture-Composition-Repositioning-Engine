@@ -349,3 +349,110 @@ test("detectFaceClusters isolates multiple separated faces for GROUP scenes and 
   }
   assert.equal(detectFaceClusters(wallData, width, height).length, 0);
 });
+
+test("PipelineProcessor projects subject bounds accurately inside zoomed/cropped cropRegion", async () => {
+  const adapter = new MockPerceptionAdapter("SUBJECT_TOO_SMALL");
+  // Mock SUBJECT_TOO_SMALL returns x=0.47, y=0.20, w=0.06, h=0.08
+  const processor = new PipelineProcessor({
+    adapter,
+    config: {
+      composition: {
+        minimumAcceptableScore: 70,
+        excellentScore: 90,
+        ruleOfThirdsTolerance: 0.08,
+        minimumHeadroomRatio: 0.08,
+        minimumSubjectSizeRatio: 0.18,
+        maximumSubjectSizeRatio: 0.72,
+        maximumHorizonAngleDegrees: 3,
+        minimumConfidence: 0.6,
+      },
+      guidance: {
+        minimumGuidanceConfidence: 0.65,
+        guidanceCooldownMs: 1200,
+        recommendationPersistenceMs: 500,
+        stabilityDurationMs: 750,
+        maximumRepeatedAnnouncements: 2,
+      },
+      inference: {
+        targetInferenceFps: 10,
+        minimumInferenceIntervalMs: 100,
+        modelConfidenceThreshold: 0.55,
+        maximumProcessingWidth: 640,
+        maximumProcessingHeight: 360,
+        inferenceEnabled: true,
+      },
+      performance: {
+        targetCameraFps: 30,
+        targetProcessingFps: 15,
+        targetInferenceLatencyMs: 75,
+        targetEndToEndLatencyMs: 150,
+        diagnosticsSamplingIntervalMs: 1000,
+      },
+    },
+  });
+
+  const frame = {
+    frameId: "crop_1",
+    timestamp: 1000,
+    width: 1280,
+    height: 720,
+    orientation: "LANDSCAPE",
+    source: { type: "SYNTHETIC" },
+    payload: { kind: "OPAQUE_REF", refId: "crop_1" },
+  };
+
+  // Zoomed 2.5x centered region (x: 0.3..0.7, y: 0.1..0.5) should scale subject size 2.5x
+  const croppedResult = await processor.processFrame(frame, {
+    cropRegion: { x: 0.3, y: 0.1, width: 0.4, height: 0.4 },
+  });
+
+  const bounds = croppedResult.composition.primarySubjectBounds;
+  assert.ok(bounds, "Expected projected subject bounds inside zoomed crop");
+  assert.ok(Math.abs(bounds.width - 0.15) < 0.01, `Expected scaled width ~0.15, got ${bounds.width}`);
+  assert.ok(Math.abs(bounds.height - 0.2) < 0.01, `Expected scaled height ~0.20, got ${bounds.height}`);
+  assert.equal(typeof croppedResult.inferenceLatencyMs, "number");
+  assert.equal(typeof croppedResult.guidanceLatencyMs, "number");
+});
+
+test("RealPerceptionAdapter negates horizon angle when frame is horizontally mirrored", async () => {
+  const adapter = new RealPerceptionAdapter();
+  const width = 100;
+  const height = 100;
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  // Sloped horizon: top sky bright (230), bottom ground dark (30), tilted downward right (+dy)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const boundary = 40 + (x / width) * 16;
+      const val = y < boundary ? 230 : 30;
+      const idx = (y * width + x) * 4;
+      data[idx] = val;
+      data[idx + 1] = val;
+      data[idx + 2] = val;
+      data[idx + 3] = 255;
+    }
+  }
+
+  const baseFrame = {
+    frameId: "hor_mirror_1",
+    timestamp: 1000,
+    width,
+    height,
+    orientation: "LANDSCAPE",
+    source: { type: "WEBCAM" },
+    payload: { kind: "OPAQUE_REF", refId: "hor_mirror_1", metadata: { mirrored: false } },
+  };
+  const mirroredFrame = {
+    ...baseFrame,
+    frameId: "hor_mirror_2",
+    payload: { kind: "OPAQUE_REF", refId: "hor_mirror_2", metadata: { mirrored: true } },
+  };
+
+  const rawRes = await adapter.processFrame(baseFrame, { pixelData: { data, width, height } });
+  const mirroredRes = await adapter.processFrame(mirroredFrame, { pixelData: { data, width, height } });
+
+  assert.equal(rawRes.horizon?.detected, true);
+  assert.equal(mirroredRes.horizon?.detected, true);
+  assert.ok(rawRes.horizon.angleDegrees > 5);
+  assert.ok(mirroredRes.horizon.angleDegrees < -5);
+});

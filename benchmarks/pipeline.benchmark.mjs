@@ -7,6 +7,7 @@ import { createGuidanceEngine } from "../packages/guidance/dist/index.js";
 import {
   MockPerceptionAdapter,
   PipelineProcessor,
+  RealPerceptionAdapter,
   detectHorizonFromPixels,
 } from "../packages/perception/dist/index.js";
 
@@ -120,8 +121,8 @@ async function runBenchmarks() {
   console.log(`   Mean: ${horizonStats.mean} ms | P50: ${horizonStats.p50} ms | P95: ${horizonStats.p95} ms | P99: ${horizonStats.p99} ms`);
   console.log(`   Throughput: ~${Math.round(1000 / (horizonStats.mean || 0.001))} frames/sec\n`);
 
-  // Benchmark 4: Full Pipeline End-to-End
-  console.log("4. Benchmarking Full Pipeline End-to-End (Camera -> Perception -> Composition -> Guidance)...");
+  // Benchmark 4: Full Pipeline End-to-End (Mocked Logic)
+  console.log("4. Benchmarking Logic Pipeline (MockPerceptionAdapter -> Composition -> Guidance)...");
   const pipelineSamples = [];
   const syntheticCamera = new SyntheticCameraSource({ width: 640, height: 360 });
   const mockAdapter = new MockPerceptionAdapter("PERFECT_PORTRAIT");
@@ -138,16 +139,47 @@ async function runBenchmarks() {
   }
   const pipelineStats = calculateStats(pipelineSamples);
   console.log(`   Mean: ${pipelineStats.mean} ms | P50: ${pipelineStats.p50} ms | P95: ${pipelineStats.p95} ms | P99: ${pipelineStats.p99} ms`);
-  console.log(`   Max Processing Rate: ~${Math.round(1000 / (pipelineStats.mean || 0.001))} FPS\n`);
+  console.log(`   Max Logic Rate: ~${Math.round(1000 / (pipelineStats.mean || 0.001))} FPS\n`);
+
+  // Benchmark 5: RealPixel End-to-End Inference (RealPerceptionAdapter + 240x160 RGBA Pixels)
+  console.log("5. Benchmarking Full Pixel Pipeline (RealPerceptionAdapter 240x160 -> Composition -> Guidance)...");
+  const rw = 240;
+  const rh = 160;
+  const realBuffer = new Uint8ClampedArray(rw * rh * 4).fill(45);
+  for (let y = 30; y < 95; y++) {
+    for (let x = 90; x < 150; x++) {
+      const idx = (y * rw + x) * 4;
+      realBuffer[idx] = 212;
+      realBuffer[idx + 1] = 158;
+      realBuffer[idx + 2] = 128;
+      realBuffer[idx + 3] = 255;
+    }
+  }
+  const realAdapter = new RealPerceptionAdapter();
+  await realAdapter.initialize();
+  const realPipeline = new PipelineProcessor({ adapter: realAdapter, config });
+  const realSamples = [];
+  const sampleOpts = { pixelData: { data: realBuffer, width: rw, height: rh } };
+
+  for (let i = 0; i < 10; i++) await realPipeline.processFrame(syntheticCamera.createFrame(), sampleOpts);
+  for (let i = 0; i < 200; i++) {
+    const frame = syntheticCamera.createFrame(2000 + i * 66);
+    const t0 = performance.now();
+    await realPipeline.processFrame(frame, sampleOpts);
+    realSamples.push(performance.now() - t0);
+  }
+  const realStats = calculateStats(realSamples);
+  console.log(`   Mean: ${realStats.mean} ms | P50: ${realStats.p50} ms | P95: ${realStats.p95} ms | P99: ${realStats.p99} ms`);
+  console.log(`   Max Real-Pixel Rate: ~${Math.round(1000 / (realStats.mean || 0.001))} FPS\n`);
 
   console.log("=================================================");
   console.log("                 VERIFICATION RESULTS            ");
   console.log("=================================================");
-  const inferencePass = pipelineStats.p95 <= config.performance.targetInferenceLatencyMs;
-  const e2ePass = pipelineStats.p99 <= config.performance.targetEndToEndLatencyMs;
+  const inferencePass = realStats.p95 <= config.performance.targetInferenceLatencyMs;
+  const e2ePass = realStats.p99 <= config.performance.targetEndToEndLatencyMs;
 
-  console.log(`- Inference Latency Target (<= ${config.performance.targetInferenceLatencyMs} ms):  ${inferencePass ? "PASS" : "FAIL"} (Observed P95: ${pipelineStats.p95} ms)`);
-  console.log(`- End-to-End Latency Target (<= ${config.performance.targetEndToEndLatencyMs} ms): ${e2ePass ? "PASS" : "FAIL"} (Observed P99: ${pipelineStats.p99} ms)`);
+  console.log(`- Real-Pixel Inference Target (<= ${config.performance.targetInferenceLatencyMs} ms):  ${inferencePass ? "PASS" : "FAIL"} (Observed P95: ${realStats.p95} ms)`);
+  console.log(`- Real-Pixel E2E Latency Target (<= ${config.performance.targetEndToEndLatencyMs} ms): ${e2ePass ? "PASS" : "FAIL"} (Observed P99: ${realStats.p99} ms)`);
   console.log("=================================================\n");
 
   if (!inferencePass || !e2ePass) {

@@ -301,4 +301,16 @@ test("evaluates PASSPORT_ID biometric centering and CREATOR_TALKING_HEAD templat
   });
   const creatorRes = evaluateComposition(lowCreator);
   assert.ok(creatorRes.issues.some((i) => /presenter zone/i.test(i.message)));
+
+  // Far-edge portrait (> 0.12 center offset) also emits typed SUBJECT_POSITION issue
+  const edgePortrait = createMockContext({
+    scene: "PORTRAIT",
+    perception: {
+      faces: [{ boundingBox: { x: 0.01, y: 0.15, width: 0.22, height: 0.35 }, confidence: 0.9 }],
+    },
+  });
+  const edgeRes = evaluateComposition(edgePortrait);
+  const posIssue = edgeRes.issues.find((i) => i.metricType === "SUBJECT_POSITION");
+  assert.ok(posIssue, "Expected SUBJECT_POSITION issue for far-edge portrait");
+  assert.equal(posIssue.code, "PAN_LEFT");
 });

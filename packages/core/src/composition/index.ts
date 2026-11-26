@@ -38,7 +38,22 @@ export interface CompositionMetric {
   readonly explanation?: string;
 }
 
+export type CompositionIssueCode =
+  | "HEADROOM_TOO_TIGHT"
+  | "HEADROOM_EXCESSIVE"
+  | "SUBJECT_TOO_SMALL"
+  | "SUBJECT_TOO_LARGE"
+  | "HORIZON_TILT_CW"
+  | "HORIZON_TILT_CCW"
+  | "NO_SUBJECT"
+  | "PAN_LEFT"
+  | "PAN_RIGHT"
+  | "TILT_UP"
+  | "TILT_DOWN"
+  | "OFF_BALANCE";
+
 export interface CompositionIssue {
+  readonly code?: CompositionIssueCode;
   readonly metricType: CompositionMetricType;
   readonly severity: "LOW" | "MEDIUM" | "HIGH";
   readonly message: string;

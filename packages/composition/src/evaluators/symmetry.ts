@@ -51,6 +51,7 @@ export function evaluateSymmetryAndPosition(
     positionScore = symmetryScore;
     if (positionScore < config.minimumAcceptableScore) {
       positionIssue = {
+        code: (centerX < 0.5 ? "PAN_LEFT" : "PAN_RIGHT") as "PAN_LEFT" | "PAN_RIGHT",
         metricType: "SUBJECT_POSITION" as const,
         severity: "LOW" as const,
         message: centerX < 0.5 ? "Subject is too far left of center. Pan camera left." : "Subject is too far right of center. Pan camera right.",
@@ -61,6 +62,17 @@ export function evaluateSymmetryAndPosition(
     const distToThird = Math.min(Math.abs(centerX - 1 / 3), Math.abs(centerX - 2 / 3));
     const thirdPenalty = Math.min(1, distToThird / 0.2);
     positionScore = Math.max(0, Math.round(100 * (1 - thirdPenalty)));
+    if (positionScore < config.minimumAcceptableScore) {
+      positionIssue = {
+        code: (centerX < 0.5 ? "PAN_LEFT" : "PAN_RIGHT") as "PAN_LEFT" | "PAN_RIGHT",
+        metricType: "SUBJECT_POSITION" as const,
+        severity: (centerOffset > 0.3 ? "MEDIUM" : "LOW") as "MEDIUM" | "LOW",
+        message:
+          centerX < 0.5
+            ? "Subject sits too far left. Pan camera left toward a grid line."
+            : "Subject sits too far right. Pan camera right toward a grid line.",
+      };
+    }
   }
 
   return {

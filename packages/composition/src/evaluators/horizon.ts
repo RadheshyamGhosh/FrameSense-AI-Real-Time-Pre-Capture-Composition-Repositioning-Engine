@@ -45,6 +45,7 @@ export function evaluateHorizon(
     const direction = angle > 0 ? "counter-clockwise" : "clockwise";
     const severity = absAngle >= 10 ? ("HIGH" as const) : absAngle >= 5 ? ("MEDIUM" as const) : ("LOW" as const);
     issue = {
+      code: (angle > 0 ? "HORIZON_TILT_CCW" : "HORIZON_TILT_CW") as "HORIZON_TILT_CCW" | "HORIZON_TILT_CW",
       metricType: "HORIZON_ALIGNMENT" as const,
       severity,
       message: `Horizon is tilted by ${absAngle.toFixed(1)}°. Rotate camera ${direction} to level.`,

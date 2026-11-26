@@ -1,4 +1,5 @@
 import type {
+  BoundingBox,
   CameraFrame,
   CaptureDecision,
   CompositionResult,
@@ -14,6 +15,16 @@ export interface PixelDataBuffer {
   readonly height: number;
 }
 
+export interface FrameQualityThresholds {
+  readonly lowLightThreshold?: number;
+  readonly overexposedThreshold?: number;
+  readonly clippedHighlightRatio?: number;
+  readonly backlitSubjectThreshold?: number;
+  readonly backlitDeltaThreshold?: number;
+  readonly blurSharpnessThreshold?: number;
+  readonly blurMaxEdgeThreshold?: number;
+}
+
 export interface PerceptionProcessOptions {
   readonly detectFaces?: boolean;
   readonly detectPoses?: boolean;
@@ -21,7 +32,11 @@ export interface PerceptionProcessOptions {
   readonly classifyScene?: boolean;
   readonly profileOverride?: SceneType;
   readonly template?: FramingTemplate;
+  readonly cropRegion?: BoundingBox;
   readonly pixelData?: PixelDataBuffer;
+  readonly qualityThresholds?: FrameQualityThresholds;
+  readonly horizonContrastThresholdDefault?: number;
+  readonly horizonContrastThresholdWithFaces?: number;
 }
 
 export interface PerceptionAdapter {
@@ -41,4 +56,6 @@ export interface PipelineExecutionResult {
   readonly guidance: GuidanceResult;
   readonly capture: CaptureDecision;
   readonly processingTimeMs: number;
+  readonly inferenceLatencyMs?: number;
+  readonly guidanceLatencyMs?: number;
 }
